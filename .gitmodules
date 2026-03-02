@@ -1,0 +1,3 @@
+[submodule "neurodb"]
+	path = neurodb
+	url = https://github.com/mantrachen/neurodb.git

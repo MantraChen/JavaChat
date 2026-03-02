@@ -1,5 +1,4 @@
 # NeuroDB 不随本仓库提交，请单独克隆或通过 submodule 引用
-neurodb/
 
 # Maven
 chat-server/target/
