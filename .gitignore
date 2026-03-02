@@ -1,5 +1,3 @@
-.gitmodules
-.gitignore
 # Maven
 chat-server/target/
 *.jar
