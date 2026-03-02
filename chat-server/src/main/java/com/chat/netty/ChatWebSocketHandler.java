@@ -212,12 +212,17 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         List<ChatMessagePacket> list = new ArrayList<>();
         try {
             for (NeuroDbClient.ScanRecord rec : neuroDb.scan(startKey, endKey)) {
+                if (rec.value == null || rec.value.isBlank()) continue;
                 Message m = GSON.fromJson(rec.value, Message.class);
-                if (m == null || m.getSenderId() == null) continue;
-                if (m.getTimestamp() <= lastTs) continue;
+                if (m == null) continue;
+                String senderId = m.getSenderId();
+                if (senderId == null || senderId.isEmpty()) continue;
+                if (lastTs > 0 && m.getTimestamp() <= lastTs) continue;
+                long msgId = m.getMessageId();
+                if (msgId == 0) msgId = rec.key;
                 ChatMessagePacket p = new ChatMessagePacket();
-                p.messageId = m.getMessageId();
-                p.senderId = m.getSenderId();
+                p.messageId = msgId;
+                p.senderId = senderId;
                 p.content = m.isRecalled() ? "" : (m.getContent() != null ? m.getContent() : "");
                 p.timestamp = m.getTimestamp();
                 p.isRecalled = m.isRecalled();
