@@ -35,6 +35,7 @@ public class ChatServerInitializer extends ChannelInitializer<SocketChannel> {
         p.addLast(new HttpObjectAggregator(65536));
         p.addLast(new ChunkedWriteHandler());
         p.addLast(new WebSocketServerProtocolHandler("/ws", null, true));
+        p.addLast(new HttpStaticHandler());
         p.addLast(new ChatWebSocketHandler(authService, jwtUtil, neuroDb, registry));
     }
 }

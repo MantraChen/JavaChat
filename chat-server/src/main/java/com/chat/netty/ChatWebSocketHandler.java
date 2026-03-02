@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -151,16 +152,20 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         ctx.writeAndFlush(new TextWebSocketFrame(json));
     }
 
+    /** 全量拉取历史时从 0 开始扫，非消息记录（如用户）会在解析时被过滤掉。 */
+    private static final int SYNC_ALL_START_KEY = 0;
+
     private void handleSync(ChannelHandlerContext ctx, Map<String, Object> map) {
         Object tsObj = map.get("lastTimestamp");
         long lastTs = tsObj instanceof Number ? ((Number) tsObj).longValue() : 0L;
-        int startKey = SnowflakeId.timestampToStartKey(lastTs);
+        int startKey = lastTs <= 0 ? SYNC_ALL_START_KEY : SnowflakeId.timestampToStartKey(lastTs);
         int endKey = Integer.MAX_VALUE;
         List<ChatMessagePacket> list = new ArrayList<>();
         try {
             for (NeuroDbClient.ScanRecord rec : neuroDb.scan(startKey, endKey)) {
                 Message m = GSON.fromJson(rec.value, Message.class);
-                if (m == null || m.getTimestamp() <= lastTs) continue;
+                if (m == null || m.getSenderId() == null || m.getContent() == null) continue;
+                if (m.getTimestamp() <= lastTs) continue;
                 ChatMessagePacket p = new ChatMessagePacket();
                 p.messageId = m.getMessageId();
                 p.senderId = m.getSenderId();
@@ -173,6 +178,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             sendError(ctx, "Sync failed");
             return;
         }
+        list.sort(Comparator.comparingLong(p -> p.timestamp));
         SyncResultPacket result = new SyncResultPacket();
         result.messages = list;
         send(ctx, result);
