@@ -84,7 +84,9 @@ public class NeuroDbClient {
                 if (o instanceof java.util.Map) {
                     java.util.Map<String, Object> m = (java.util.Map<String, Object>) o;
                     Object k = m.get("Key");
+                    if (k == null) k = m.get("key");
                     Object v = m.get("Value");
+                    if (v == null) v = m.get("value");
                     int kInt = k instanceof Number ? ((Number) k).intValue() : 0;
                     String vStr = decodeValue(v);
                     list.add(new ScanRecord(kInt, vStr));

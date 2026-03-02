@@ -3,6 +3,7 @@ package com.chat.netty;
 import io.netty.channel.Channel;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,14 +37,16 @@ public class ChannelRegistry {
         return userIdToChannel.get(userId);
     }
 
-    /** 向除 excludeUserId 外的所有已连接用户广播消息。 */
+    /** 向除 excludeUserId 外的所有已连接用户广播消息（以 WebSocket 文本帧发送，否则对方收不到）。 */
     public void broadcast(String excludeUserId, Object message) {
         String msg = message instanceof String ? (String) message : message.toString();
+        TextWebSocketFrame frame = new TextWebSocketFrame(msg);
         for (var e : userIdToChannel.entrySet()) {
             if (excludeUserId != null && excludeUserId.equals(e.getKey())) continue;
             Channel c = e.getValue();
-            if (c.isActive()) c.writeAndFlush(msg);
+            if (c.isActive()) c.writeAndFlush(frame.retain());
         }
+        frame.release();
     }
 
     public int size() {

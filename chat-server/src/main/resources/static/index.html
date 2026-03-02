@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #F5F5F7;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      color: #333333;
+      line-height: 1.5;
+    }
+
+    /* ---------- 登录 ---------- */
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .login-card {
+      background: #FFFFFF;
+      width: 100%;
+      max-width: 360px;
+      padding: 40px 32px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .login-card h1 {
+      margin: 0 0 28px;
+      font-weight: 600;
+      font-size: 22px;
+      text-align: center;
+    }
+    .login-card input {
+      width: 100%;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      border: 1px solid #EAEAEA;
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+    }
+    .login-card input:focus {
+      border-color: #333333;
+    }
+    .login-card button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      background: #333333;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .login-card button:hover { background: #000000; }
+    .login-card .error {
+      margin-top: 12px;
+      color: #c00;
+      font-size: 13px;
+    }
+
+    /* ---------- 聊天（默认隐藏）：整屏固定，仅消息区内部滚动，类似微信 ---------- */
+    #chat-screen {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #chat-screen.visible { display: flex; }
+
+    .chat-header {
+      flex-shrink: 0;
+      background: #FFFFFF;
+      padding: 14px 20px;
+      font-weight: 600;
+      border-bottom: 1px solid #EAEAEA;
+    }
+
+    .chat-layout {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .chat-sidebar {
+      flex-shrink: 0;
+      width: 200px;
+      background: #F9F9F9;
+      border-right: 1px solid #EAEAEA;
+      padding: 16px;
+      font-size: 13px;
+      color: #666;
+      overflow-y: auto;
+    }
+    .chat-sidebar .title { font-weight: 600; margin-bottom: 8px; color: #333; }
+
+    .chat-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #FFFFFF;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    /* 消息区单独成块，仅此区域滚动，不拉长 body */
+    .messages {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 16px 20px 8px;
+      display: flex;
+      flex-direction: column;
+    }
+    .msg {
+      max-width: 75%;
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .msg.other {
+      align-self: flex-start;
+      background: #F1F1F1;
+      color: #333333;
+    }
+    .msg.self {
+      align-self: flex-end;
+      margin-left: 0;
+      background: #333333;
+      color: #FFFFFF;
+    }
+    .msg .sender { font-size: 12px; opacity: 0.85; margin-bottom: 4px; }
+    .msg.self .sender { color: #e0e0e0; }
+
+    .chat-input-wrap {
+      flex-shrink: 0;
+      border-top: 1px solid #EAEAEA;
+      padding: 12px 20px 16px;
+      background: #FFFFFF;
+    }
+    .chat-input-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .chat-input-row input {
+      flex: 1;
+      padding: 12px 14px;
+      border: 1px solid #EAEAEA;
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+    }
+    .chat-input-row input:focus { border-color: #333333; }
+    .chat-input-row button {
+      padding: 12px 20px;
+      background: #333333;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .chat-input-row button:hover { background: #000000; }
+  </style>
+</head>
+<body>
+  <div id="login-screen">
+    <div class="login-card">
+      <h1>登录</h1>
+      <input type="text" id="input-userid" placeholder="User ID（如 A、B、C）" autocomplete="username">
+      <input type="password" id="input-password" placeholder="Password" autocomplete="current-password">
+      <button type="button" id="btn-login">登录</button>
+      <div class="error" id="login-error"></div>
+    </div>
+  </div>
+
+  <div id="chat-screen">
+    <header class="chat-header" id="header-user">—</header>
+    <div class="chat-layout">
+      <aside class="chat-sidebar">
+        <div class="title">说明</div>
+        <p>当前为演示账号 A/B/C，密码 passA / passB / passC。消息会广播给所有在线用户。</p>
+      </aside>
+      <main class="chat-main">
+        <div class="messages" id="messages"></div>
+        <div class="chat-input-wrap">
+          <div class="chat-input-row">
+            <input type="text" id="input-msg" placeholder="输入消息，回车发送" autocomplete="off">
+            <button type="button" id="btn-send">发送</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const API_BASE = '';
+      const WS_URL = 'ws://' + location.host + '/ws';
+
+      let token = '';
+      let userId = '';
+      let ws = null;
+      let authenticated = false;
+
+      const loginScreen = document.getElementById('login-screen');
+      const chatScreen = document.getElementById('chat-screen');
+      const inputUserid = document.getElementById('input-userid');
+      const inputPassword = document.getElementById('input-password');
+      const loginError = document.getElementById('login-error');
+      const btnLogin = document.getElementById('btn-login');
+      const headerUser = document.getElementById('header-user');
+      const messagesEl = document.getElementById('messages');
+      const inputMsg = document.getElementById('input-msg');
+      const btnSend = document.getElementById('btn-send');
+
+      function showChat() {
+        loginScreen.style.display = 'none';
+        chatScreen.classList.add('visible');
+        headerUser.textContent = userId;
+        inputMsg.focus();
+      }
+
+      function appendMessage(data, isSelf) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + (isSelf ? 'self' : 'other');
+        const sender = document.createElement('div');
+        sender.className = 'sender';
+        sender.textContent = data.senderId || '—';
+        div.appendChild(sender);
+        const text = document.createElement('div');
+        text.textContent = data.content || '';
+        div.appendChild(text);
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function connectWebSocket() {
+        ws = new WebSocket(WS_URL);
+        ws.onopen = function() {
+          ws.send(JSON.stringify({ type: 'auth', token: token }));
+        };
+        ws.onmessage = function(ev) {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.type === 'auth_ok') {
+              authenticated = true;
+              messagesEl.innerHTML = '';
+              ws.send(JSON.stringify({ type: 'sync', lastTimestamp: 0 }));
+            } else if (data.type === 'auth_fail') {
+              authenticated = false;
+              headerUser.textContent = '认证失败，请刷新页面重新登录';
+            } else if (data.type === 'chat') {
+              appendMessage(data, data.senderId === userId);
+            } else if (data.type === 'sync_result' && Array.isArray(data.messages)) {
+              data.messages.forEach(function(m) {
+                appendMessage(m, m.senderId === userId);
+              });
+            } else if (data.type === 'error') {
+              console.warn('Server error:', data.reason);
+            }
+          } catch (e) {
+            console.warn('Parse message error', e);
+          }
+        };
+        ws.onclose = function() {
+          authenticated = false;
+        };
+        ws.onerror = function() {
+          authenticated = false;
+        };
+      }
+
+      btnLogin.addEventListener('click', async function() {
+        const user = (inputUserid.value || '').trim();
+        const pass = inputPassword.value || '';
+        loginError.textContent = '';
+        if (!user || !pass) {
+          loginError.textContent = '请输入 User ID 和密码';
+          return;
+        }
+        btnLogin.disabled = true;
+        try {
+          const res = await fetch((API_BASE || '') + '/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user, password: pass })
+          });
+          const json = await res.json();
+          if (json.token) {
+            token = json.token;
+            userId = user;
+            showChat();
+            connectWebSocket();
+          } else {
+            loginError.textContent = json.error || '登录失败';
+          }
+        } catch (e) {
+          loginError.textContent = '网络错误，请确认服务已启动';
+        }
+        btnLogin.disabled = false;
+      });
+
+      inputPassword.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') btnLogin.click();
+      });
+
+      function sendChat() {
+        const content = (inputMsg.value || '').trim();
+        if (!content || !ws || ws.readyState !== WebSocket.OPEN || !authenticated) return;
+        ws.send(JSON.stringify({ type: 'chat', content: content }));
+        inputMsg.value = '';
+        inputMsg.focus();
+      }
+
+      btnSend.addEventListener('click', sendChat);
+      inputMsg.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          sendChat();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
