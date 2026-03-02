@@ -30,7 +30,6 @@ public class ChatServerMain {
         AuthService authService = new AuthService(neuroDb, config, jwtUtil);
         ChannelRegistry registry = new ChannelRegistry();
 
-        // 首次部署时若用户不存在则初始化 A/B/C（密码可改为环境变量）
         try {
             for (String id : new String[]{"A", "B", "C"}) {
                 if (!authService.userExists(id)) {
@@ -38,6 +37,7 @@ public class ChatServerMain {
                     log.info("Initialized user {} (password: pass{})", id, id);
                 }
             }
+            authService.initAdminIfAbsent(config.getAdminUsername(), config.getAdminPassword());
         } catch (Exception e) {
             log.warn("Init users check failed: {}", e.getMessage());
         }

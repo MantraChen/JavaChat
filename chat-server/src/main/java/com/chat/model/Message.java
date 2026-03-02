@@ -1,6 +1,7 @@
 package com.chat.model;
 
 import com.google.gson.annotations.SerializedName;
+import java.util.List;
 
 /**
  * 聊天消息实体，存入 NeuroDB 的 value（JSON）。
@@ -15,6 +16,16 @@ public class Message {
     private String content;      // 文本内容
     @SerializedName("timestamp")
     private long timestamp;      // 毫秒时间戳，便于 SYNC 按时间拉取
+    @SerializedName("is_recalled")
+    private boolean isRecalled;   // 撤回标记（tombstone）
+    @SerializedName("reply_to_id")
+    private Long replyToId;      // 引用消息 id
+    @SerializedName("reply_to_user")
+    private String replyToUser;
+    @SerializedName("reply_to_content")
+    private String replyToContent;
+    @SerializedName("mentions")
+    private List<String> mentions; // 被 @ 的用户名列表
 
     public Message() {}
 
@@ -33,4 +44,14 @@ public class Message {
     public void setContent(String content) { this.content = content; }
     public long getTimestamp() { return timestamp; }
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+    public boolean isRecalled() { return isRecalled; }
+    public void setRecalled(boolean recalled) { isRecalled = recalled; }
+    public Long getReplyToId() { return replyToId; }
+    public void setReplyToId(Long replyToId) { this.replyToId = replyToId; }
+    public String getReplyToUser() { return replyToUser; }
+    public void setReplyToUser(String replyToUser) { this.replyToUser = replyToUser; }
+    public String getReplyToContent() { return replyToContent; }
+    public void setReplyToContent(String replyToContent) { this.replyToContent = replyToContent; }
+    public List<String> getMentions() { return mentions; }
+    public void setMentions(List<String> mentions) { this.mentions = mentions; }
 }

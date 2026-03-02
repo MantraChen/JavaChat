@@ -25,18 +25,45 @@ public class JwtUtil {
         this.expirationMs = expirationMs;
     }
 
-    /** 签发 JWT，payload 中包含 userId（sub）。 */
-    public String createToken(String userId) {
+    private static final String CLAIM_ROLE = "role";
+
+    /** 签发 JWT，sub=用户名/登录名，claim role=USER|ADMIN。 */
+    public String createToken(String subject, String role) {
         return Jwts.builder()
-                .subject(userId)
+                .subject(subject)
+                .claim(CLAIM_ROLE, role != null ? role : "USER")
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(key)
                 .compact();
     }
 
-    /** 校验并解析 JWT，返回 userId；无效或过期返回 null。 */
+    /** 兼容旧版：无 role 时视为 USER。 */
+    public String createToken(String subject) {
+        return createToken(subject, "USER");
+    }
+
+    /** 校验并解析 JWT，返回 sub（用户名）；无效或过期返回 null。 */
     public String parseUserId(String token) {
+        if (token == null || token.isBlank()) return null;
+        try {
+            return Jwts.parser()
+                    .verifyWith(key)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload()
+                    .getSubject();
+        } catch (ExpiredJwtException e) {
+            log.debug("JWT expired: {}", e.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.debug("JWT parse failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 解析 JWT 中的 role（ADMIN / USER），无效返回 null。 */
+    public String parseRole(String token) {
         if (token == null || token.isBlank()) return null;
         try {
             Claims claims = Jwts.parser()
@@ -44,12 +71,9 @@ public class JwtUtil {
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-            return claims.getSubject();
-        } catch (ExpiredJwtException e) {
-            log.debug("JWT expired: {}", e.getMessage());
-            return null;
+            String role = (String) claims.get(CLAIM_ROLE);
+            return role != null ? role : "USER";
         } catch (Exception e) {
-            log.debug("JWT parse failed: {}", e.getMessage());
             return null;
         }
     }
