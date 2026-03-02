@@ -14,6 +14,9 @@ public class AppConfig {
     /** 消息 key 使用 Snowflake，需保证在 2^63 内，此处仅做范围扫描用 */
     private long messageKeyMin = 2_000_000_000_000L;
     private long messageKeyMax = 9_000_000_000_000L;
+    /** 首次启动时创建的管理员账号（若不存在） */
+    private String adminUsername = "admin";
+    private String adminPassword = "admin123";
 
     public String getNeuroDbHttpUrl() { return neuroDbHttpUrl; }
     public void setNeuroDbHttpUrl(String neuroDbHttpUrl) { this.neuroDbHttpUrl = neuroDbHttpUrl; }
@@ -27,4 +30,8 @@ public class AppConfig {
     public void setUserKeyNamespace(long userKeyNamespace) { this.userKeyNamespace = userKeyNamespace; }
     public long getMessageKeyMin() { return messageKeyMin; }
     public long getMessageKeyMax() { return messageKeyMax; }
+    public String getAdminUsername() { return adminUsername; }
+    public void setAdminUsername(String adminUsername) { this.adminUsername = adminUsername; }
+    public String getAdminPassword() { return adminPassword; }
+    public void setAdminPassword(String adminPassword) { this.adminPassword = adminPassword; }
 }

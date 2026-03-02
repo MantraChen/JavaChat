@@ -15,18 +15,17 @@ import io.netty.util.CharsetUtil;
 import java.io.InputStream;
 
 /**
- * 处理 GET / 或 GET /index.html，返回 src/main/resources/static/index.html，
- * 用于一体化部署时在浏览器中直接打开聊天界面。
+ * 处理 GET 静态页：/、/index.html、/register.html、/admin.html。
  */
 public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
-    private static final byte[] INDEX_HTML = loadIndexHtml();
+    private static final byte[] INDEX_HTML = loadResource("static/index.html");
+    private static final byte[] REGISTER_HTML = loadResource("static/register.html");
+    private static final byte[] ADMIN_HTML = loadResource("static/admin.html");
 
-    private static byte[] loadIndexHtml() {
-        try (InputStream in = HttpStaticHandler.class.getClassLoader()
-                .getResourceAsStream("static/index.html")) {
-            if (in == null) return new byte[0];
-            return in.readAllBytes();
+    private static byte[] loadResource(String name) {
+        try (InputStream in = HttpStaticHandler.class.getClassLoader().getResourceAsStream(name)) {
+            return in != null ? in.readAllBytes() : new byte[0];
         } catch (Exception e) {
             return new byte[0];
         }
@@ -51,13 +50,20 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
         if (uri == null) uri = "";
         int q = uri.indexOf('?');
         String path = q >= 0 ? uri.substring(0, q) : uri;
-        if (!"/".equals(path) && !"/index.html".equals(path)) {
+        byte[] content;
+        if ("/".equals(path) || "/index.html".equals(path)) {
+            content = INDEX_HTML;
+        } else if ("/register.html".equals(path)) {
+            content = REGISTER_HTML;
+        } else if ("/admin.html".equals(path)) {
+            content = ADMIN_HTML;
+        } else {
             ctx.fireChannelRead(req.retain());
             return;
         }
-        if (INDEX_HTML.length == 0) {
-            req.release();
-            ByteBuf body = Unpooled.copiedBuffer("static/index.html not found", CharsetUtil.UTF_8);
+        req.release();
+        if (content.length == 0) {
+            ByteBuf body = Unpooled.copiedBuffer("Not found", CharsetUtil.UTF_8);
             DefaultFullHttpResponse resp = new DefaultFullHttpResponse(
                     HttpVersion.HTTP_1_1, HttpResponseStatus.NOT_FOUND, body);
             resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=utf-8")
@@ -65,8 +71,7 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
             ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
             return;
         }
-        req.release();
-        ByteBuf body = Unpooled.copiedBuffer(INDEX_HTML);
+        ByteBuf body = Unpooled.copiedBuffer(content);
         DefaultFullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, body);
         resp.headers()
                 .set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8")

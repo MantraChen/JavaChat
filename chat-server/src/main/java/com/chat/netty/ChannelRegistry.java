@@ -6,6 +6,8 @@ import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -51,5 +53,10 @@ public class ChannelRegistry {
 
     public int size() {
         return userIdToChannel.size();
+    }
+
+    /** 返回当前在线用户 ID（用户名）列表，用于 @ 提及候选。 */
+    public List<String> getOnlineUserIds() {
+        return new ArrayList<>(userIdToChannel.keySet());
     }
 }
