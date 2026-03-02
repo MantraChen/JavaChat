@@ -39,16 +39,14 @@ public class ChannelRegistry {
         return userIdToChannel.get(userId);
     }
 
-    /** 向除 excludeUserId 外的所有已连接用户广播消息（以 WebSocket 文本帧发送，否则对方收不到）。 */
+    /** 向除 excludeUserId 外的所有已连接用户广播消息（每通道独立帧，确保所有客户端都能收到）。 */
     public void broadcast(String excludeUserId, Object message) {
         String msg = message instanceof String ? (String) message : message.toString();
-        TextWebSocketFrame frame = new TextWebSocketFrame(msg);
         for (var e : userIdToChannel.entrySet()) {
             if (excludeUserId != null && excludeUserId.equals(e.getKey())) continue;
             Channel c = e.getValue();
-            if (c.isActive()) c.writeAndFlush(frame.retain());
+            if (c.isActive()) c.writeAndFlush(new TextWebSocketFrame(msg));
         }
-        frame.release();
     }
 
     public int size() {

@@ -77,43 +77,55 @@ public class NeuroDbClient {
         try (Response resp = http.newCall(req).execute()) {
             if (!resp.isSuccessful()) throw new IOException("NeuroDB scan failed: " + resp.code());
             String json = Objects.requireNonNull(resp.body()).string();
+            List<?> dataList = null;
             ScanResponse r = gson.fromJson(json, ScanResponse.class);
-            if (r == null || r.data == null) return new ArrayList<>();
+            if (r != null && r.data != null) dataList = r.data;
+            if (dataList == null) {
+                java.util.Map<?, ?> raw = gson.fromJson(json, java.util.Map.class);
+                if (raw != null) {
+                    if (raw.containsKey("data")) dataList = (List<?>) raw.get("data");
+                    else if (raw.containsKey("Data")) dataList = (List<?>) raw.get("Data");
+                }
+            }
+            if (dataList == null) return new ArrayList<>();
             List<ScanRecord> list = new ArrayList<>();
-            for (Object o : r.data) {
+            for (Object o : dataList) {
                 if (o instanceof java.util.Map) {
                     java.util.Map<String, Object> m = (java.util.Map<String, Object>) o;
                     Object k = m.get("Key");
                     if (k == null) k = m.get("key");
                     Object v = m.get("Value");
                     if (v == null) v = m.get("value");
-                    int kInt = k instanceof Number ? ((Number) k).intValue() : 0;
-                    String vStr = decodeValue(v);
-                    list.add(new ScanRecord(kInt, vStr));
+                    long kLong = k instanceof Number ? ((Number) k).longValue() : 0L;
+                    String vStr = valueToString(v);
+                    list.add(new ScanRecord(kLong, vStr));
                 }
             }
             return list;
         }
     }
 
-    /** NeuroDB 返回的 Value 可能是 base64 编码的字节，此处统一解码为 UTF-8 字符串。 */
-    private static String decodeValue(Object v) {
+    /** 将 NeuroDB 返回的 value 转为字符串：可能是 base64、纯字符串或已解析的 JSON 对象。 */
+    private String valueToString(Object v) {
         if (v == null) return "";
-        String s = v.toString();
-        try {
-            byte[] decoded = Base64.getDecoder().decode(s);
-            return decoded != null && decoded.length > 0
-                    ? new String(decoded, StandardCharsets.UTF_8) : s;
-        } catch (IllegalArgumentException e) {
-            return s;
+        if (v instanceof String) {
+            String s = (String) v;
+            try {
+                byte[] decoded = Base64.getDecoder().decode(s);
+                return decoded != null && decoded.length > 0
+                        ? new String(decoded, StandardCharsets.UTF_8) : s;
+            } catch (IllegalArgumentException e) {
+                return s;
+            }
         }
+        return gson.toJson(v);
     }
 
     public static class ScanRecord {
-        public final int key;
+        public final long key;
         public final String value;
 
-        public ScanRecord(int key, String value) {
+        public ScanRecord(long key, String value) {
             this.key = key;
             this.value = value;
         }

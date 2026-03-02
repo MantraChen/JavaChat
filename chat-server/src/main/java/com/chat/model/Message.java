@@ -8,21 +8,21 @@ import java.util.List;
  * Key 为 Snowflake 生成的 long，保证按时间有序。
  */
 public class Message {
-    @SerializedName("message_id")
+    @SerializedName(value = "message_id", alternate = {"messageId"})
     private long messageId;      // 与 NeuroDB key 一致（Snowflake）
-    @SerializedName("sender_id")
+    @SerializedName(value = "sender_id", alternate = {"senderId"})
     private String senderId;     // 发送者，如 "A"
     @SerializedName("content")
     private String content;      // 文本内容
     @SerializedName("timestamp")
     private long timestamp;      // 毫秒时间戳，便于 SYNC 按时间拉取
-    @SerializedName("is_recalled")
+    @SerializedName(value = "is_recalled", alternate = {"isRecalled"})
     private boolean isRecalled;   // 撤回标记（tombstone）
-    @SerializedName("reply_to_id")
+    @SerializedName(value = "reply_to_id", alternate = {"replyToId"})
     private Long replyToId;      // 引用消息 id
-    @SerializedName("reply_to_user")
+    @SerializedName(value = "reply_to_user", alternate = {"replyToUser"})
     private String replyToUser;
-    @SerializedName("reply_to_content")
+    @SerializedName(value = "reply_to_content", alternate = {"replyToContent"})
     private String replyToContent;
     @SerializedName("mentions")
     private List<String> mentions; // 被 @ 的用户名列表

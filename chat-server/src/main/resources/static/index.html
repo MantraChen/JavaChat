@@ -224,8 +224,8 @@
     <header class="chat-header" id="header-user">—</header>
     <div class="chat-layout">
       <aside class="chat-sidebar">
-        <div class="title">说明</div>
-        <p>当前为演示账号 A/B/C，密码 passA / passB / passC。消息会广播给所有在线用户。</p>
+        <div class="title">Tips</div>
+        <p>Niggaaaaa～</p>
       </aside>
       <main class="chat-main">
         <div class="messages" id="messages"></div>
@@ -363,11 +363,21 @@
           const quoteLink = document.createElement('a');
           quoteLink.textContent = '引用';
           quoteLink.onclick = function() {
+            var msgEl = quoteLink.closest('.msg');
+            if (msgEl && msgEl.classList.contains('recalled')) return;
             pendingQuote = { id: data.messageId, user: data.senderId || '', content: (data.content || '').slice(0, 80) };
             quoteText.textContent = (data.senderId || '') + ': ' + (data.content || '').slice(0, 50);
             quotePreview.style.display = 'flex';
           };
           actions.appendChild(quoteLink);
+          if (isSelf && ws && ws.readyState === WebSocket.OPEN) {
+            const recallLink = document.createElement('a');
+            recallLink.textContent = '撤回';
+            recallLink.onclick = function() {
+              ws.send(JSON.stringify({ type: 'RECALL', messageId: data.messageId }));
+            };
+            actions.appendChild(recallLink);
+          }
           div.appendChild(actions);
         }
         messagesEl.appendChild(div);
@@ -375,11 +385,17 @@
       }
 
       function applyRecall(messageId, senderId) {
-        const el = messagesEl.querySelector('.msg[data-message-id="' + messageId + '"]');
+        var el = messagesEl.querySelector('.msg[data-message-id="' + String(messageId) + '"]');
         if (!el) return;
         el.classList.add('recalled');
-        const text = el.querySelector('.msg-text');
+        var text = el.querySelector('.msg-text');
         if (text) text.textContent = (senderId || '') + ' 撤回了一条消息';
+        var actions = el.querySelector('.msg-actions');
+        if (actions) actions.remove();
+        if (pendingQuote && pendingQuote.id === messageId) {
+          pendingQuote = null;
+          if (quotePreview) quotePreview.style.display = 'none';
+        }
       }
 
       function connectWebSocket() {
