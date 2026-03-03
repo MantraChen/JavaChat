@@ -35,8 +35,8 @@ public class NeuroDbClient {
                 .build();
     }
 
-    /** POST /api/put 写入一条 key-value，value 为字符串（如 JSON）。 */
-    public void put(int key, String value) throws IOException {
+    /** POST /api/put 写入一条 key-value，value 为字符串（如 JSON）。Key 为 64 位与 NeuroDB int64 一致。 */
+    public void put(long key, String value) throws IOException {
         String body = gson.toJson(new PutRequest(key, value));
         Request req = new Request.Builder()
                 .url(baseUrl + "/api/put")
@@ -50,7 +50,7 @@ public class NeuroDbClient {
     }
 
     /** GET /api/get?key= 获取一条，不存在返回 null。 */
-    public String get(int key) throws IOException {
+    public String get(long key) throws IOException {
         Request req = new Request.Builder()
                 .url(baseUrl + "/api/get?key=" + key)
                 .get()
@@ -66,10 +66,10 @@ public class NeuroDbClient {
 
     /**
      * GET /api/scan?start=&end= 范围查询，返回 data 列表，每项为 {key, value}。
-     * value 在 NeuroDB 返回里是字符串。
+     * start/end 为 64 位，与 NeuroDB int64 Key 一致，避免负数 key 被排除。
      */
     @SuppressWarnings("unchecked")
-    public List<ScanRecord> scan(int startKey, int endKey) throws IOException {
+    public List<ScanRecord> scan(long startKey, long endKey) throws IOException {
         Request req = new Request.Builder()
                 .url(baseUrl + "/api/scan?start=" + startKey + "&end=" + endKey)
                 .get()
@@ -133,11 +133,11 @@ public class NeuroDbClient {
 
     private static class PutRequest {
         @SuppressWarnings("unused")
-        final int key;
+        final long key;
         @SuppressWarnings("unused")
         final String value;
 
-        PutRequest(int key, String value) {
+        PutRequest(long key, String value) {
             this.key = key;
             this.value = value;
         }
