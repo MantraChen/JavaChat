@@ -25,4 +25,6 @@ public class ChatMessagePacket {
     public String replyToContent;
     @SerializedName("mentions")
     public List<String> mentions;
+    @SerializedName("receiverId")
+    public String receiverId;  // 空或 "PUBLIC" 为大厅；否则为私信目标
 }
