@@ -155,11 +155,11 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             return;
         }
         ChatMessagePacket packet = new ChatMessagePacket();
-        packet.messageId = messageId;
+        packet.messageId = String.valueOf(messageId);
         packet.senderId = currentUserId;
         packet.content = content;
         packet.timestamp = ts;
-        packet.replyToId = msg.getReplyToId();
+        packet.replyToId = msg.getReplyToId() == null ? null : String.valueOf(msg.getReplyToId());
         packet.replyToUser = msg.getReplyToUser();
         packet.replyToContent = msg.getReplyToContent();
         packet.mentions = msg.getMentions();
@@ -173,7 +173,12 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     private void handleRecall(ChannelHandlerContext ctx, Map<String, Object> map) {
         Object midObj = map.get("messageId");
         if (midObj == null) { sendError(ctx, "messageId required"); return; }
-        long messageId = ((Number) midObj).longValue();
+        long messageId;
+        if (midObj instanceof String) {
+            try { messageId = Long.parseLong((String) midObj); } catch (NumberFormatException e) { sendError(ctx, "Invalid messageId"); return; }
+        } else if (midObj instanceof Number) {
+            messageId = ((Number) midObj).longValue();
+        } else { sendError(ctx, "messageId required"); return; }
         String json;
         try {
             json = neuroDb.get(messageId);
@@ -194,7 +199,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             sendError(ctx, "Recall failed"); return;
         }
         RecallPacket recall = new RecallPacket();
-        recall.messageId = messageId;
+        recall.messageId = String.valueOf(messageId);
         recall.senderId = currentUserId;
         String recallJson = GSON.toJson(recall);
         registry.broadcast(null, recallJson);
@@ -221,12 +226,12 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
                 long msgId = m.getMessageId();
                 if (msgId == 0) msgId = rec.key;
                 ChatMessagePacket p = new ChatMessagePacket();
-                p.messageId = msgId;
+                p.messageId = String.valueOf(msgId);
                 p.senderId = senderId;
                 p.content = m.isRecalled() ? "" : (m.getContent() != null ? m.getContent() : "");
                 p.timestamp = m.getTimestamp();
                 p.isRecalled = m.isRecalled();
-                p.replyToId = m.getReplyToId();
+                p.replyToId = m.getReplyToId() == null ? null : String.valueOf(m.getReplyToId());
                 p.replyToUser = m.getReplyToUser();
                 p.replyToContent = m.getReplyToContent();
                 p.mentions = m.getMentions();
