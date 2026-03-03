@@ -13,6 +13,8 @@ public class ChatMessagePacket {
     public String senderId;
     @SerializedName("content")
     public String content;
+    @SerializedName(value = "msgType", alternate = {"msg_type"})
+    public String msgType;  // "text" | "image"，默认 text
     @SerializedName("timestamp")
     public long timestamp;
     @SerializedName("isRecalled")

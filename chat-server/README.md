@@ -1,5 +1,20 @@
 # Chat Server（Java + Netty + NeuroDB）
 
+## 分布式多节点（Redis Pub/Sub）
+
+私信与群聊支持跨节点：多台 Netty 节点通过 Redis 消息总线同步，任意节点上的用户可互相发消息。
+
+1. 启动 Redis（如本地 `redis-server`）。
+2. **两个节点都要启用 Redis**：每个进程都设置环境变量 `REDIS_HOST=127.0.0.1`（否则该节点既不发布也不订阅，消息无法互通）。可选 `REDIS_PORT=6379`。
+3. 在 **chat-server** 目录下启动多个节点，例如：
+   - 节点 A：`REDIS_HOST=127.0.0.1 ./mvnw exec:java`（默认 9091）
+   - 节点 B：`WEBSOCKET_PORT=9092 REDIS_HOST=127.0.0.1 ./mvnw exec:java`
+4. 浏览器分别打开 `http://localhost:9091` 与 `http://localhost:9092`，用不同账号登录，即可跨端口私聊/群聊。
+
+不设置 `REDIS_HOST` 时为单机模式（仅本节点内互通），无需 Redis。
+
+---
+
 ## 从 int Key 迁移到 long Key 后历史不显示？
 
 若在将 messageId/Key 从 int 改为 long 之后，**刷新页面仍无法显示历史记录**，通常是以下两种原因之一：

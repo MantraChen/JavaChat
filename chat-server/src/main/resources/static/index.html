@@ -183,13 +183,13 @@
       align-items: center;
     }
     .chat-input-row input {
-      flex: 1;
       padding: 12px 14px;
       border: 1px solid #EAEAEA;
       border-radius: 8px;
       font-size: 15px;
       outline: none;
     }
+    .chat-input-row input[type="text"] { flex: 1; min-width: 0; }
     .chat-input-row input:focus { border-color: #333333; }
     .chat-input-row button {
       padding: 12px 20px;
@@ -200,12 +200,19 @@
       font-size: 14px;
       font-weight: 500;
       cursor: pointer;
+      flex-shrink: 0;
     }
     .chat-input-row button:hover { background: #000000; }
+    .chat-input-row .btn-image { background: #0a7ea4; min-width: 80px; }
+    .chat-input-row .btn-image:hover { background: #086486; }
     #mention-dropdown { position: absolute; bottom: 100%; left: 20px; right: 20px; margin-bottom: 4px; background: #fff; border: 1px solid #eee; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); max-height: 160px; overflow-y: auto; display: none; z-index: 10; }
     #mention-dropdown.visible { display: block; }
     #mention-dropdown .item { padding: 8px 12px; cursor: pointer; font-size: 14px; }
     #mention-dropdown .item:hover, #mention-dropdown .item.selected { background: #f0f0f0; }
+    .typing-indicator { padding: 4px 12px; font-size: 12px; color: #666; background: #f5f5f5; }
+    .msg.sending { opacity: 0.85; }
+    .msg.send-failed .send-fail-hint { color: #c00; margin-right: 6px; }
+    .msg-image { max-width: 280px; max-height: 200px; border-radius: 6px; cursor: pointer; display: block; }
   </style>
 </head>
 <body>
@@ -225,6 +232,7 @@
 
   <div id="chat-screen">
     <header class="chat-header" id="header-title">—</header>
+    <div class="typing-indicator" id="typing-indicator" style="display:none;"></div>
     <div class="chat-layout">
       <aside class="chat-sidebar">
         <div class="title">会话</div>
@@ -236,6 +244,8 @@
           <div class="quote-preview" id="quote-preview" style="display:none;"><span id="quote-text"></span><span class="clear" id="quote-clear">×</span></div>
           <div id="mention-dropdown"></div>
           <div class="chat-input-row">
+            <input type="file" id="input-file" accept="image/*" style="display:none">
+            <button type="button" id="btn-image" class="btn-image" title="发送图片">📷 图片</button>
             <input type="text" id="input-msg" placeholder="输入消息，@ 提及他人，回车发送" autocomplete="off">
             <button type="button" id="btn-send">发送</button>
           </div>
@@ -321,6 +331,36 @@
       const btnSend = document.getElementById('btn-send');
       var allMessages = [];
       var currentSessionId = 'PUBLIC';
+      var pendingAckTimers = {};  // localId -> timerId
+      var typingIndicatorEl = document.getElementById('typing-indicator');
+      var typingClearTimer = null;
+      var typingSendTimer = null;
+      var typingSendOffTimer = null;
+
+      function genLocalId() { return 'l-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10); }
+
+      function showTyping(senderId, status) {
+        if (typingIndicatorEl) {
+          if (typingClearTimer) { clearTimeout(typingClearTimer); typingClearTimer = null; }
+          if (status && senderId && senderId !== userId) {
+            typingIndicatorEl.textContent = senderId + ' 正在输入...';
+            typingIndicatorEl.style.display = 'block';
+            typingClearTimer = setTimeout(function() {
+              typingIndicatorEl.style.display = 'none';
+              typingClearTimer = null;
+            }, 3000);
+          } else {
+            typingIndicatorEl.style.display = 'none';
+          }
+        }
+      }
+
+      function sendTypingStatus(status) {
+        if (!ws || ws.readyState !== WebSocket.OPEN || !authenticated) return;
+        var payload = { type: 'typing', status: status };
+        if (currentSessionId && currentSessionId !== 'PUBLIC') payload.receiverId = currentSessionId;
+        ws.send(JSON.stringify(payload));
+      }
 
       function sessionIdForMessage(m) {
         var r = m.receiverId;
@@ -363,9 +403,13 @@
       }
 
       function appendMessageToDOM(data, isSelf) {
+        if (!messagesEl) return;
         const div = document.createElement('div');
         div.className = 'msg ' + (isSelf ? 'self' : 'other');
         if (data.messageId) div.setAttribute('data-message-id', data.messageId);
+        if (data.localId) div.setAttribute('data-local-id', data.localId);
+        if (data.sending) div.classList.add('sending');
+        if (data.sendFailed) div.classList.add('send-failed');
         if (data.mentions && data.mentions.indexOf(userId) >= 0) div.classList.add('mention');
         const sender = document.createElement('div');
         sender.className = 'sender';
@@ -397,6 +441,14 @@
         if (data.isRecalled) {
           div.classList.add('recalled');
           text.textContent = (data.senderId || '') + ' 撤回了一条消息';
+        } else if (data.msgType === 'image' && data.content) {
+          const img = document.createElement('img');
+          img.src = data.content;
+          img.alt = '图片';
+          img.className = 'msg-image';
+          img.loading = 'lazy';
+          img.onclick = function() { window.open(data.content, '_blank'); };
+          text.appendChild(img);
         } else {
           text.textContent = data.content || '';
         }
@@ -404,27 +456,106 @@
         if (!data.isRecalled) {
           const actions = document.createElement('div');
           actions.className = 'msg-actions';
-          const quoteLink = document.createElement('a');
-          quoteLink.textContent = '引用';
-          quoteLink.onclick = function() {
-            var msgEl = quoteLink.closest('.msg');
-            if (msgEl && msgEl.classList.contains('recalled')) return;
-            pendingQuote = { id: data.messageId, user: data.senderId || '', content: (data.content || '').slice(0, 80) };
-            quoteText.textContent = (data.senderId || '') + ': ' + (data.content || '').slice(0, 50);
-            quotePreview.style.display = 'flex';
-          };
-          actions.appendChild(quoteLink);
-          if (isSelf && ws && ws.readyState === WebSocket.OPEN) {
-            const recallLink = document.createElement('a');
-            recallLink.textContent = '撤回';
-            recallLink.onclick = function() {
-              ws.send(JSON.stringify({ type: 'RECALL', messageId: data.messageId }));
+          if (data.sendFailed) {
+            var failSpan = document.createElement('span');
+            failSpan.className = 'send-fail-hint';
+            failSpan.textContent = '发送失败 ';
+            var retryLink = document.createElement('a');
+            retryLink.textContent = '重发';
+            retryLink.onclick = function() { resendFailedMessage(data); };
+            actions.appendChild(failSpan);
+            actions.appendChild(retryLink);
+          } else {
+            const quoteLink = document.createElement('a');
+            quoteLink.textContent = '引用';
+            quoteLink.onclick = function() {
+              var msgEl = quoteLink.closest('.msg');
+              if (msgEl && msgEl.classList.contains('recalled')) return;
+              pendingQuote = { id: data.messageId, user: data.senderId || '', content: (data.content || '').slice(0, 80) };
+              quoteText.textContent = (data.senderId || '') + ': ' + (data.content || '').slice(0, 50);
+              quotePreview.style.display = 'flex';
             };
-            actions.appendChild(recallLink);
+            actions.appendChild(quoteLink);
+            var canRecall = isSelf && data.messageId && ws && ws.readyState === WebSocket.OPEN;
+            if (canRecall && data.timestamp) {
+              if (Date.now() - data.timestamp > 2 * 60 * 1000) canRecall = false;
+            }
+            if (canRecall) {
+              const recallLink = document.createElement('a');
+              recallLink.textContent = '撤回';
+              recallLink.onclick = function() {
+                ws.send(JSON.stringify({ type: 'RECALL', messageId: data.messageId }));
+              };
+              actions.appendChild(recallLink);
+            }
           }
           div.appendChild(actions);
         }
         messagesEl.appendChild(div);
+      }
+
+      function clearPendingAck(localId) {
+        if (pendingAckTimers[localId]) {
+          clearTimeout(pendingAckTimers[localId]);
+          delete pendingAckTimers[localId];
+        }
+      }
+
+      function applyAck(localId, messageId) {
+        var item = allMessages.find(function(x) { return x.data.localId === localId; });
+        if (item) {
+          item.data.messageId = String(messageId);
+          item.data.sending = false;
+          var el = messagesEl.querySelector('.msg[data-local-id="' + localId + '"]');
+          if (el) {
+            el.setAttribute('data-message-id', messageId);
+            el.classList.remove('sending');
+          }
+        }
+        clearPendingAck(localId);
+      }
+
+      function markSendFailed(localId) {
+        var item = allMessages.find(function(x) { return x.data.localId === localId; });
+        if (item) {
+          item.data.sendFailed = true;
+          item.data.sending = false;
+          var el = messagesEl.querySelector('.msg[data-local-id="' + localId + '"]');
+          if (el) {
+            el.classList.remove('sending');
+            el.classList.add('send-failed');
+            var actions = el.querySelector('.msg-actions');
+            if (actions) {
+              actions.innerHTML = '';
+              var failSpan = document.createElement('span');
+              failSpan.className = 'send-fail-hint';
+              failSpan.textContent = '发送失败 ';
+              var retryLink = document.createElement('a');
+              retryLink.textContent = '重发';
+              retryLink.onclick = function() { resendFailedMessage(item.data); };
+              actions.appendChild(failSpan);
+              actions.appendChild(retryLink);
+            }
+          }
+        }
+        clearPendingAck(localId);
+      }
+
+      function resendFailedMessage(data) {
+        if (!data || !ws || ws.readyState !== WebSocket.OPEN) return;
+        var idx = allMessages.findIndex(function(x) { return x.data.localId === data.localId; });
+        if (idx >= 0) allMessages.splice(idx, 1);
+        var el = messagesEl.querySelector('.msg[data-local-id="' + data.localId + '"]');
+        if (el) el.remove();
+        var payload = { type: 'chat', content: data.content, mentions: data.mentions || [], localId: genLocalId() };
+        if (currentSessionId && currentSessionId !== 'PUBLIC') payload.receiverId = currentSessionId;
+        if (data.msgType) payload.msgType = data.msgType;
+        var optData = { localId: payload.localId, content: data.content, senderId: userId, timestamp: Date.now(), sending: true, mentions: payload.mentions };
+        if (data.msgType) optData.msgType = data.msgType;
+        allMessages.push({ data: optData, isSelf: true, sessionId: currentSessionId });
+        appendMessageToDOM(optData, true);
+        pendingAckTimers[payload.localId] = setTimeout(function() { markSendFailed(payload.localId); }, 5000);
+        ws.send(JSON.stringify(payload));
       }
 
       function appendMessage(data, isSelf) {
@@ -475,11 +606,31 @@
             } else if (data.type === 'auth_fail') {
               authenticated = false;
               if (headerTitleEl) headerTitleEl.textContent = '认证失败，请刷新页面重新登录';
+            } else if (data.type === 'ack') {
+              if (data.localId && data.messageId) applyAck(data.localId, data.messageId);
             } else if (data.type === 'chat') {
-              appendMessage(data, data.senderId === userId);
+              var isSelf = data.senderId === userId;
+              if (isSelf) {
+                var pending = allMessages.find(function(x) { return x.isSelf && x.data.localId && !x.data.messageId && x.sessionId === currentSessionId; });
+                if (pending) {
+                  clearPendingAck(pending.data.localId);
+                  var localId = pending.data.localId;
+                  var idx = allMessages.findIndex(function(x) { return x.data.localId === localId; });
+                  if (idx >= 0) allMessages.splice(idx, 1);
+                  var el = messagesEl ? messagesEl.querySelector('.msg[data-local-id="' + localId + '"]') : null;
+                  if (el) el.remove();
+                }
+                appendMessage(data, true);
+                if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+              } else {
+                showTyping(data.senderId, false);
+                appendMessage(data, false);
+              }
               if (data.mentions && data.mentions.indexOf(userId) >= 0 && document.hidden) {
                 try { new Notification('新消息 @你', { body: (data.senderId || '') + ': ' + (data.content || '').slice(0, 50) }); } catch (e) {}
               }
+            } else if (data.type === 'typing') {
+              showTyping(data.senderId, data.status);
             } else if (data.type === 'RECALL') {
               applyRecall(data.messageId, data.senderId);
             } else if (data.type === 'sync_result' && Array.isArray(data.messages)) {
@@ -490,6 +641,9 @@
               var meMentioned = data.messages.some(function(m) { return m.mentions && m.mentions.indexOf(userId) >= 0; });
               if (meMentioned && document.hidden) { try { new Notification('有人 @你'); } catch (e) {} }
             } else if (data.type === 'error') {
+              if (data.reason && data.reason.indexOf('Recall timeout') >= 0) {
+                return;
+              }
               console.warn('Server error:', data.reason);
             }
           } catch (e) {
@@ -513,11 +667,14 @@
         return m ? m.map(function(x) { return x.slice(1); }) : [];
       }
 
-      function sendChat() {
-        const content = (inputMsg.value || '').trim();
+      function sendChat(content, msgType) {
+        if (content == null) content = (inputMsg.value || '').trim();
         if (!content || !ws || ws.readyState !== WebSocket.OPEN || !authenticated) return;
-        const payload = { type: 'chat', content: content, mentions: parseMentions(content) };
+        var mentions = (typeof content === 'string' && content) ? parseMentions(content) : [];
+        var localId = genLocalId();
+        var payload = { type: 'chat', content: content, mentions: mentions, localId: localId };
         if (currentSessionId && currentSessionId !== 'PUBLIC') payload.receiverId = currentSessionId;
+        if (msgType) payload.msgType = msgType;
         if (pendingQuote) {
           payload.replyToId = pendingQuote.id;
           payload.replyToUser = pendingQuote.user;
@@ -525,12 +682,43 @@
           pendingQuote = null;
           quotePreview.style.display = 'none';
         }
+        var optData = { localId: localId, content: content, senderId: userId, timestamp: Date.now(), sending: true, mentions: mentions };
+        if (msgType) optData.msgType = msgType;
+        allMessages.push({ data: optData, isSelf: true, sessionId: currentSessionId });
+        appendMessageToDOM(optData, true);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        pendingAckTimers[localId] = setTimeout(function() { markSendFailed(localId); }, 5000);
         ws.send(JSON.stringify(payload));
-        inputMsg.value = '';
-        inputMsg.focus();
+        if (inputMsg && typeof content === 'string') {
+          inputMsg.value = '';
+          inputMsg.focus();
+        }
       }
 
-      btnSend.addEventListener('click', sendChat);
+      btnSend.addEventListener('click', function() { sendChat(); });
+
+      var inputFile = document.getElementById('input-file');
+      var btnImage = document.getElementById('btn-image');
+      if (btnImage) btnImage.addEventListener('click', function() { if (inputFile) inputFile.click(); });
+      if (inputFile) inputFile.addEventListener('change', function() {
+        var file = inputFile.files && inputFile.files[0];
+        if (!file || !file.type.startsWith('image/')) return;
+        var fd = new FormData();
+        fd.append('file', file);
+        var base = (API_BASE || '').replace(/\/$/, '') || '';
+        fetch(base + '/api/upload', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+          body: fd
+        }).then(function(r) { return r.json(); }).then(function(json) {
+          if (json.url) {
+            var url = json.url;
+            if (base && url.indexOf('/') === 0) url = base + url;
+            sendChat(url, 'image');
+          }
+        }).catch(function() {});
+        inputFile.value = '';
+      });
 
       var mentionDropdown = document.getElementById('mention-dropdown');
       var mentionCandidates = [];
@@ -600,7 +788,12 @@
         } else {
           closeMentionDropdown();
         }
+        if (typingSendTimer) clearTimeout(typingSendTimer);
+        if (typingSendOffTimer) clearTimeout(typingSendOffTimer);
+        typingSendTimer = setTimeout(function() { sendTypingStatus(true); typingSendTimer = null; }, 400);
+        typingSendOffTimer = setTimeout(function() { sendTypingStatus(false); typingSendOffTimer = null; }, 2500);
       });
+      inputMsg.addEventListener('blur', function() { sendTypingStatus(false); });
 
       inputMsg.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.isComposing) {

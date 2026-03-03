@@ -13,7 +13,9 @@ public class Message {
     @SerializedName(value = "sender_id", alternate = {"senderId"})
     private String senderId;     // 发送者，如 "A"
     @SerializedName("content")
-    private String content;      // 文本内容
+    private String content;      // 文本内容或图片 URL
+    @SerializedName(value = "msg_type", alternate = {"msgType"})
+    private String msgType;      // "text" | "image"，默认 text
     @SerializedName("timestamp")
     private long timestamp;      // 毫秒时间戳，便于 SYNC 按时间拉取
     @SerializedName(value = "is_recalled", alternate = {"isRecalled"})
@@ -44,6 +46,8 @@ public class Message {
     public void setSenderId(String senderId) { this.senderId = senderId; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+    public String getMsgType() { return msgType == null ? "text" : msgType; }
+    public void setMsgType(String msgType) { this.msgType = msgType; }
     public long getTimestamp() { return timestamp; }
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
     public boolean isRecalled() { return isRecalled; }

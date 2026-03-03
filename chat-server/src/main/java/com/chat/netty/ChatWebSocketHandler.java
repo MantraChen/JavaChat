@@ -4,7 +4,14 @@ import com.chat.auth.AuthService;
 import com.chat.auth.JwtUtil;
 import com.chat.model.Message;
 import com.chat.neurodb.NeuroDbClient;
-import com.chat.protocol.*;
+import com.chat.protocol.AckPacket;
+import com.chat.protocol.AuthFailPacket;
+import com.chat.protocol.AuthOkPacket;
+import com.chat.protocol.ChatMessagePacket;
+import com.chat.protocol.ErrorPacket;
+import com.chat.protocol.RecallPacket;
+import com.chat.protocol.SyncResultPacket;
+import com.chat.redis.RedisChatBus;
 import com.chat.util.SnowflakeId;
 import com.google.gson.Gson;
 import io.netty.buffer.Unpooled;
@@ -22,11 +29,22 @@ import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.DefaultLastHttpContent;
+import io.netty.handler.codec.http.multipart.DefaultHttpDataFactory;
+import io.netty.handler.codec.http.multipart.FileUpload;
+import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
+import io.netty.handler.codec.http.multipart.InterfaceHttpData;
+
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * WebSocket 消息处理：首包必须为 auth（携带 JWT），通过后注册 Channel；
@@ -40,16 +58,21 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     private final JwtUtil jwtUtil;
     private final NeuroDbClient neuroDb;
     private final ChannelRegistry registry;
+    private final RedisChatBus redisBus;
+    private final String uploadDir;
     private final SnowflakeId snowflakeId = new SnowflakeId();
 
     /** 当前连接对应的 userId，未认证为 null */
     private String currentUserId;
 
-    public ChatWebSocketHandler(AuthService authService, JwtUtil jwtUtil, NeuroDbClient neuroDb, ChannelRegistry registry) {
+    public ChatWebSocketHandler(AuthService authService, JwtUtil jwtUtil, NeuroDbClient neuroDb,
+                               ChannelRegistry registry, RedisChatBus redisBus, String uploadDir) {
         this.authService = authService;
         this.jwtUtil = jwtUtil;
         this.neuroDb = neuroDb;
         this.registry = registry;
+        this.redisBus = redisBus != null ? redisBus : new RedisChatBus("", 6379, registry);
+        this.uploadDir = uploadDir != null ? uploadDir : "upload";
     }
 
     @Override
@@ -123,6 +146,9 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
                 case "RECALL":
                     handleRecall(ctx, map);
                     break;
+                case "typing":
+                    handleTyping(ctx, map);
+                    break;
                 default:
                     sendError(ctx, "Unknown type: " + type);
             }
@@ -158,6 +184,8 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         String receiverId = (String) map.get("receiverId");
         if (receiverId != null) receiverId = receiverId.trim();
         msg.setReceiverId(receiverId);
+        String msgType = (String) map.get("msgType");
+        if (msgType != null && !msgType.isEmpty()) msg.setMsgType(msgType);
         String value = GSON.toJson(msg);
         try {
             neuroDb.put(messageId, value);
@@ -176,16 +204,29 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         packet.replyToContent = msg.getReplyToContent();
         packet.mentions = msg.getMentions();
         packet.receiverId = receiverId;
+        packet.msgType = msg.getMsgType();
         String json = GSON.toJson(packet);
-        if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {
-            registry.broadcast(currentUserId, json);
+        String localId = (String) map.get("localId");
+        if (redisBus.isEnabled()) {
+            redisBus.publish(json);
             ctx.writeAndFlush(new TextWebSocketFrame(json));
         } else {
-            Channel targetCh = registry.get(receiverId);
-            if (targetCh != null && targetCh.isActive()) {
-                targetCh.writeAndFlush(new TextWebSocketFrame(json));
+            if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {
+                registry.broadcast(currentUserId, json);
+                ctx.writeAndFlush(new TextWebSocketFrame(json));
+            } else {
+                Channel targetCh = registry.get(receiverId);
+                if (targetCh != null && targetCh.isActive()) {
+                    targetCh.writeAndFlush(new TextWebSocketFrame(json));
+                }
+                ctx.writeAndFlush(new TextWebSocketFrame(json));
             }
-            ctx.writeAndFlush(new TextWebSocketFrame(json));
+        }
+        if (localId != null && !localId.isEmpty()) {
+            AckPacket ack = new AckPacket();
+            ack.localId = localId;
+            ack.messageId = String.valueOf(messageId);
+            ctx.writeAndFlush(new TextWebSocketFrame(GSON.toJson(ack)));
         }
     }
 
@@ -223,8 +264,40 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         recall.messageId = String.valueOf(messageId);
         recall.senderId = currentUserId;
         String recallJson = GSON.toJson(recall);
-        registry.broadcast(null, recallJson);
-        ctx.writeAndFlush(new TextWebSocketFrame(recallJson));
+        if (redisBus.isEnabled()) {
+            redisBus.publish(recallJson);
+            ctx.writeAndFlush(new TextWebSocketFrame(recallJson));
+        } else {
+            registry.broadcast(null, recallJson);
+            ctx.writeAndFlush(new TextWebSocketFrame(recallJson));
+        }
+    }
+
+    /** 正在输入：不落库，直接推 Redis 或本机投递。 */
+    private void handleTyping(ChannelHandlerContext ctx, Map<String, Object> map) {
+        Object statusObj = map.get("status");
+        boolean status = Boolean.TRUE.equals(statusObj);
+        String receiverId = (String) map.get("receiverId");
+        if (receiverId != null) receiverId = receiverId.trim();
+        Map<String, Object> typing = Map.of(
+                "type", "typing",
+                "senderId", currentUserId,
+                "receiverId", receiverId == null ? "" : receiverId,
+                "status", status
+        );
+        String json = GSON.toJson(typing);
+        if (redisBus.isEnabled()) {
+            redisBus.publish(json);
+        } else {
+            if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {
+                registry.broadcast(currentUserId, json);
+            } else {
+                Channel targetCh = registry.get(receiverId);
+                if (targetCh != null && targetCh.isActive()) {
+                    targetCh.writeAndFlush(new TextWebSocketFrame(json));
+                }
+            }
+        }
     }
 
     /** 全量拉取历史时从 0 开始扫，非消息记录（如用户）会在解析时被过滤掉。 */
@@ -265,6 +338,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
                     p.replyToContent = m.getReplyToContent();
                     p.mentions = m.getMentions();
                     p.receiverId = recvId;
+                    p.msgType = m.getMsgType();
                     list.add(p);
                 } catch (Exception e) {
                     // 非 Message JSON（如 User、数组等）跳过
@@ -320,6 +394,14 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         }
         if ("/api/online".equals(path)) {
             handleOnline(ctx, req);
+            return;
+        }
+        if ("/api/upload".equals(path)) {
+            handleUpload(ctx, req);
+            return;
+        }
+        if (path.startsWith("/files/")) {
+            serveFile(ctx, req, path);
             return;
         }
         ctx.close();
@@ -490,6 +572,103 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             sendHttpJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
         } catch (IOException e) {
             log.warn("Reject failed: {}", e.getMessage());
+            sendHttpJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+        }
+    }
+
+    private void handleUpload(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != io.netty.handler.codec.http.HttpMethod.POST) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        if (token == null || jwtUtil.parseUserId(token) == null) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
+        HttpPostRequestDecoder decoder = null;
+        try {
+            decoder = new HttpPostRequestDecoder(new DefaultHttpDataFactory(false), req);
+            decoder.offer(new DefaultLastHttpContent(req.content().retain()));
+            String savedName = null;
+            for (InterfaceHttpData data : decoder.getBodyHttpDatas()) {
+                if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
+                    FileUpload fu = (FileUpload) data;
+                    if (fu.isCompleted()) {
+                        String ext = "";
+                        String fn = fu.getFilename();
+                        if (fn != null && fn.contains(".")) ext = fn.substring(fn.lastIndexOf('.'));
+                        if (!ext.matches("(?i)\\.(jpe?g|png|gif|webp)")) ext = ".jpg";
+                        Path dir = Paths.get(uploadDir);
+                        Files.createDirectories(dir);
+                        savedName = UUID.randomUUID().toString() + ext;
+                        Path dest = dir.resolve(savedName);
+                        Files.copy(fu.getFile().toPath(), dest);
+                        break;
+                    }
+                }
+            }
+            req.release();
+            decoder.destroy();
+            if (savedName != null) {
+                String fileUrl = "/files/" + savedName;
+                sendHttpJson(ctx, HttpResponseStatus.OK, Map.of("url", fileUrl));
+            } else {
+                sendHttpJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "No file in upload"));
+            }
+        } catch (Exception e) {
+            log.warn("Upload failed: {}", e.getMessage());
+            if (decoder != null) try { decoder.destroy(); } catch (Exception ignored) {}
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Upload failed"));
+        }
+    }
+
+    private void serveFile(ChannelHandlerContext ctx, FullHttpRequest req, String path) {
+        if (req.method() != io.netty.handler.codec.http.HttpMethod.GET) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String name = path.substring("/files/".length()).replaceAll("[^a-zA-Z0-9._-]", "");
+        if (name.isEmpty()) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid path"));
+            return;
+        }
+        try {
+            Path base = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Path file = base.resolve(name).normalize();
+            if (!file.startsWith(base)) {
+                req.release();
+                sendHttpJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Forbidden"));
+                return;
+            }
+            if (!Files.isRegularFile(file)) {
+                req.release();
+                sendHttpJson(ctx, HttpResponseStatus.NOT_FOUND, Map.of("error", "Not found"));
+                return;
+            }
+            byte[] body = Files.readAllBytes(file);
+            req.release();
+            String contentType = "application/octet-stream";
+            String lower = name.toLowerCase();
+            if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) contentType = "image/jpeg";
+            else if (lower.endsWith(".png")) contentType = "image/png";
+            else if (lower.endsWith(".gif")) contentType = "image/gif";
+            else if (lower.endsWith(".webp")) contentType = "image/webp";
+            io.netty.buffer.ByteBuf buf = Unpooled.copiedBuffer(body);
+            io.netty.handler.codec.http.FullHttpResponse resp = new io.netty.handler.codec.http.DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
+            resp.headers()
+                    .set(HttpHeaderNames.CONTENT_TYPE, contentType)
+                    .set(HttpHeaderNames.CONTENT_LENGTH, buf.readableBytes());
+            ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
+        } catch (IOException e) {
+            log.warn("Serve file failed: {}", e.getMessage());
+            req.release();
             sendHttpJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
         }
     }

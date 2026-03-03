@@ -3,6 +3,7 @@ package com.chat.netty;
 import com.chat.auth.AuthService;
 import com.chat.auth.JwtUtil;
 import com.chat.neurodb.NeuroDbClient;
+import com.chat.redis.RedisChatBus;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
@@ -19,23 +20,27 @@ public class ChatServerInitializer extends ChannelInitializer<SocketChannel> {
     private final JwtUtil jwtUtil;
     private final NeuroDbClient neuroDb;
     private final ChannelRegistry registry;
+    private final RedisChatBus redisBus;
+    private final String uploadDir;
 
     public ChatServerInitializer(AuthService authService, JwtUtil jwtUtil,
-                                 NeuroDbClient neuroDb, ChannelRegistry registry) {
+                                 NeuroDbClient neuroDb, ChannelRegistry registry, RedisChatBus redisBus, String uploadDir) {
         this.authService = authService;
         this.jwtUtil = jwtUtil;
         this.neuroDb = neuroDb;
         this.registry = registry;
+        this.redisBus = redisBus;
+        this.uploadDir = uploadDir != null ? uploadDir : "upload";
     }
 
     @Override
     protected void initChannel(SocketChannel ch) {
         ChannelPipeline p = ch.pipeline();
         p.addLast(new HttpServerCodec());
-        p.addLast(new HttpObjectAggregator(65536));
+        p.addLast(new HttpObjectAggregator(5 * 1024 * 1024)); // 5MB for image upload
         p.addLast(new ChunkedWriteHandler());
         p.addLast(new WebSocketServerProtocolHandler("/ws", null, true));
         p.addLast(new HttpStaticHandler());
-        p.addLast(new ChatWebSocketHandler(authService, jwtUtil, neuroDb, registry));
+        p.addLast(new ChatWebSocketHandler(authService, jwtUtil, neuroDb, registry, redisBus, uploadDir));
     }
 }
