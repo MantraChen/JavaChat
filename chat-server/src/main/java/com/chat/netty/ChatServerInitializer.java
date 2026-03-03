@@ -9,6 +9,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolConfig;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
 
@@ -37,9 +38,13 @@ public class ChatServerInitializer extends ChannelInitializer<SocketChannel> {
     protected void initChannel(SocketChannel ch) {
         ChannelPipeline p = ch.pipeline();
         p.addLast(new HttpServerCodec());
-        p.addLast(new HttpObjectAggregator(5 * 1024 * 1024)); // 5MB for image upload
+        p.addLast(new HttpObjectAggregator(10 * 1024 * 1024)); // 10MB for HTTP/WebSocket (Base64 图片等)
         p.addLast(new ChunkedWriteHandler());
-        p.addLast(new WebSocketServerProtocolHandler("/ws", null, true));
+        WebSocketServerProtocolConfig wsConfig = WebSocketServerProtocolConfig.newBuilder()
+                .websocketPath("/ws")
+                .maxFramePayloadLength(10 * 1024 * 1024)
+                .build();
+        p.addLast(new WebSocketServerProtocolHandler(wsConfig));
         p.addLast(new HttpStaticHandler());
         p.addLast(new ChatWebSocketHandler(authService, jwtUtil, neuroDb, registry, redisBus, uploadDir));
     }
