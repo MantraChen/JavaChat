@@ -138,7 +138,15 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         long messageId = snowflakeId.nextId();
         Message msg = new Message(messageId, currentUserId, content, ts);
         Object rtId = map.get("replyToId");
-        if (rtId != null) msg.setReplyToId(((Number) rtId).longValue());
+        if (rtId != null) {
+            long replyToIdLong;
+            if (rtId instanceof String) {
+                try { replyToIdLong = Long.parseLong((String) rtId); } catch (NumberFormatException e) { replyToIdLong = 0L; }
+            } else if (rtId instanceof Number) {
+                replyToIdLong = ((Number) rtId).longValue();
+            } else { replyToIdLong = 0L; }
+            if (replyToIdLong != 0L) msg.setReplyToId(replyToIdLong);
+        }
         String rtUser = (String) map.get("replyToUser");
         if (rtUser != null) msg.setReplyToUser(rtUser);
         String rtContent = (String) map.get("replyToContent");

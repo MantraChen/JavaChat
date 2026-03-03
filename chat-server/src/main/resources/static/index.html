@@ -392,7 +392,7 @@
         if (text) text.textContent = (senderId || '') + ' 撤回了一条消息';
         var actions = el.querySelector('.msg-actions');
         if (actions) actions.remove();
-        if (pendingQuote && pendingQuote.id === messageId) {
+        if (pendingQuote && String(pendingQuote.id) === String(messageId)) {
           pendingQuote = null;
           if (quotePreview) quotePreview.style.display = 'none';
         }
