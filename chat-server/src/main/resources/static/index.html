@@ -108,12 +108,15 @@
       width: 200px;
       background: #F9F9F9;
       border-right: 1px solid #EAEAEA;
-      padding: 16px;
+      padding: 12px 0;
       font-size: 13px;
       color: #666;
       overflow-y: auto;
     }
-    .chat-sidebar .title { font-weight: 600; margin-bottom: 8px; color: #333; }
+    .chat-sidebar .title { font-weight: 600; margin-bottom: 8px; color: #333; padding: 0 16px; }
+    .chat-sidebar .session-item { padding: 10px 16px; cursor: pointer; border-left: 3px solid transparent; }
+    .chat-sidebar .session-item:hover { background: #f0f0f0; }
+    .chat-sidebar .session-item.active { background: #EAEAEA; border-left-color: #333; font-weight: 500; }
 
     .chat-main {
       flex: 1;
@@ -221,11 +224,11 @@
   </div>
 
   <div id="chat-screen">
-    <header class="chat-header" id="header-user">—</header>
+    <header class="chat-header" id="header-title">—</header>
     <div class="chat-layout">
       <aside class="chat-sidebar">
-        <div class="title">Tips</div>
-        <p>Niggaaaaa～</p>
+        <div class="title">会话</div>
+        <div id="session-list"></div>
       </aside>
       <main class="chat-main">
         <div class="messages" id="messages"></div>
@@ -285,11 +288,11 @@
               if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission();
               var ls = document.getElementById('login-screen');
               var cs = document.getElementById('chat-screen');
-              var hu = document.getElementById('header-user');
+              var ht = document.getElementById('header-title');
               var inp = document.getElementById('input-msg');
               if (ls) ls.style.display = 'none';
               if (cs) cs.classList.add('visible');
-              if (hu) hu.textContent = userId;
+              if (ht) ht.textContent = '公共大厅';
               if (inp) inp.focus();
               connectWebSocket();
             } else {
@@ -311,25 +314,55 @@
       const inputPassword = document.getElementById('input-password');
       const loginError = document.getElementById('login-error');
       const btnLogin = document.getElementById('btn-login');
-      const headerUser = document.getElementById('header-user');
+      const headerTitleEl = document.getElementById('header-title');
       const messagesEl = document.getElementById('messages');
+      const sessionListEl = document.getElementById('session-list');
       const inputMsg = document.getElementById('input-msg');
       const btnSend = document.getElementById('btn-send');
+      var allMessages = [];
+      var currentSessionId = 'PUBLIC';
 
-      function showChat() {
-        if (loginScreen) loginScreen.style.display = 'none';
-        if (chatScreen) chatScreen.classList.add('visible');
-        if (headerUser) headerUser.textContent = userId;
-        if (inputMsg) inputMsg.focus();
+      function sessionIdForMessage(m) {
+        var r = m.receiverId;
+        if (!r || r === '' || r === 'PUBLIC') return 'PUBLIC';
+        return m.senderId === userId ? r : m.senderId;
       }
 
-      let pendingQuote = null;
-      const quotePreview = document.getElementById('quote-preview');
-      const quoteText = document.getElementById('quote-text');
-      const quoteClear = document.getElementById('quote-clear');
-      if (quoteClear) quoteClear.addEventListener('click', function() { pendingQuote = null; if (quotePreview) quotePreview.style.display = 'none'; });
+      function renderSessionList() {
+        if (!sessionListEl) return;
+        var ids = { 'PUBLIC': true };
+        allMessages.forEach(function(item) {
+          ids[item.sessionId] = true;
+        });
+        var order = ['PUBLIC'];
+        Object.keys(ids).forEach(function(k) { if (k !== 'PUBLIC') order.push(k); });
+        order.sort(function(a, b) { if (a === 'PUBLIC') return -1; if (b === 'PUBLIC') return 1; return a.localeCompare(b); });
+        sessionListEl.innerHTML = order.map(function(sid) {
+          var label = sid === 'PUBLIC' ? '公共大厅' : ('与 ' + sid + ' 私聊');
+          var active = sid === currentSessionId ? ' active' : '';
+          return '<div class="session-item' + active + '" data-session="' + sid + '">' + label + '</div>';
+        }).join('');
+        sessionListEl.querySelectorAll('.session-item').forEach(function(el) {
+          el.addEventListener('click', function() {
+            currentSessionId = el.getAttribute('data-session');
+            if (headerTitleEl) headerTitleEl.textContent = currentSessionId === 'PUBLIC' ? '公共大厅' : ('与 ' + currentSessionId + ' 聊天中');
+            sessionListEl.querySelectorAll('.session-item').forEach(function(x) { x.classList.remove('active'); });
+            el.classList.add('active');
+            renderCurrentSession();
+          });
+        });
+      }
 
-      function appendMessage(data, isSelf) {
+      function renderCurrentSession() {
+        if (!messagesEl) return;
+        messagesEl.innerHTML = '';
+        allMessages.forEach(function(item) {
+          if (item.sessionId === currentSessionId) appendMessageToDOM(item.data, item.isSelf);
+        });
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function appendMessageToDOM(data, isSelf) {
         const div = document.createElement('div');
         div.className = 'msg ' + (isSelf ? 'self' : 'other');
         if (data.messageId) div.setAttribute('data-message-id', data.messageId);
@@ -337,6 +370,17 @@
         const sender = document.createElement('div');
         sender.className = 'sender';
         sender.textContent = data.senderId || '—';
+        if (!isSelf && data.senderId) {
+          sender.style.cursor = 'pointer';
+          sender.title = '点击发起私聊';
+          sender.onclick = function() {
+            currentSessionId = data.senderId;
+            renderSessionList();
+            if (headerTitleEl) headerTitleEl.textContent = '与 ' + currentSessionId + ' 聊天中';
+            sessionListEl.querySelectorAll('.session-item').forEach(function(x) { x.classList.remove('active'); if (x.getAttribute('data-session') === currentSessionId) x.classList.add('active'); });
+            renderCurrentSession();
+          };
+        }
         div.appendChild(sender);
         if (data.replyToId && (data.replyToUser || data.replyToContent)) {
           const q = document.createElement('div');
@@ -381,10 +425,25 @@
           div.appendChild(actions);
         }
         messagesEl.appendChild(div);
+      }
+
+      function appendMessage(data, isSelf) {
+        var sid = sessionIdForMessage(data);
+        allMessages.push({ data: data, isSelf: isSelf, sessionId: sid });
+        if (sid === currentSessionId) appendMessageToDOM(data, isSelf);
+        if (sessionListEl && sid !== 'PUBLIC') renderSessionList();
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
+      let pendingQuote = null;
+      const quotePreview = document.getElementById('quote-preview');
+      const quoteText = document.getElementById('quote-text');
+      const quoteClear = document.getElementById('quote-clear');
+      if (quoteClear) quoteClear.addEventListener('click', function() { pendingQuote = null; if (quotePreview) quotePreview.style.display = 'none'; });
+
       function applyRecall(messageId, senderId) {
+        var item = allMessages.find(function(x) { return String(x.data.messageId) === String(messageId); });
+        if (item) item.data.isRecalled = true;
         var el = messagesEl.querySelector('.msg[data-message-id="' + String(messageId) + '"]');
         if (!el) return;
         el.classList.add('recalled');
@@ -408,11 +467,14 @@
             const data = JSON.parse(ev.data);
             if (data.type === 'auth_ok') {
               authenticated = true;
+              allMessages = [];
+              currentSessionId = 'PUBLIC';
+              if (headerTitleEl) headerTitleEl.textContent = '公共大厅';
               messagesEl.innerHTML = '';
               ws.send(JSON.stringify({ type: 'sync', lastTimestamp: 0 }));
             } else if (data.type === 'auth_fail') {
               authenticated = false;
-              headerUser.textContent = '认证失败，请刷新页面重新登录';
+              if (headerTitleEl) headerTitleEl.textContent = '认证失败，请刷新页面重新登录';
             } else if (data.type === 'chat') {
               appendMessage(data, data.senderId === userId);
               if (data.mentions && data.mentions.indexOf(userId) >= 0 && document.hidden) {
@@ -424,6 +486,7 @@
               data.messages.forEach(function(m) {
                 appendMessage(m, m.senderId === userId);
               });
+              renderSessionList();
               var meMentioned = data.messages.some(function(m) { return m.mentions && m.mentions.indexOf(userId) >= 0; });
               if (meMentioned && document.hidden) { try { new Notification('有人 @你'); } catch (e) {} }
             } else if (data.type === 'error') {
@@ -454,6 +517,7 @@
         const content = (inputMsg.value || '').trim();
         if (!content || !ws || ws.readyState !== WebSocket.OPEN || !authenticated) return;
         const payload = { type: 'chat', content: content, mentions: parseMentions(content) };
+        if (currentSessionId && currentSessionId !== 'PUBLIC') payload.receiverId = currentSessionId;
         if (pendingQuote) {
           payload.replyToId = pendingQuote.id;
           payload.replyToUser = pendingQuote.user;

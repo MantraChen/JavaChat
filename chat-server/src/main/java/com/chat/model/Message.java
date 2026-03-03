@@ -26,6 +26,8 @@ public class Message {
     private String replyToContent;
     @SerializedName("mentions")
     private List<String> mentions; // 被 @ 的用户名列表
+    @SerializedName(value = "receiver_id", alternate = {"receiverId"})
+    private String receiverId;     // 空或 "PUBLIC" 为大厅；否则为私信目标 userId
 
     public Message() {}
 
@@ -54,4 +56,6 @@ public class Message {
     public void setReplyToContent(String replyToContent) { this.replyToContent = replyToContent; }
     public List<String> getMentions() { return mentions; }
     public void setMentions(List<String> mentions) { this.mentions = mentions; }
+    public String getReceiverId() { return receiverId; }
+    public void setReceiverId(String receiverId) { this.receiverId = receiverId; }
 }

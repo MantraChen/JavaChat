@@ -8,6 +8,7 @@ import com.chat.protocol.*;
 import com.chat.util.SnowflakeId;
 import com.google.gson.Gson;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -154,6 +155,9 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         @SuppressWarnings("unchecked")
         List<String> mentions = (List<String>) map.get("mentions");
         if (mentions != null) msg.setMentions(mentions);
+        String receiverId = (String) map.get("receiverId");
+        if (receiverId != null) receiverId = receiverId.trim();
+        msg.setReceiverId(receiverId);
         String value = GSON.toJson(msg);
         try {
             neuroDb.put(messageId, value);
@@ -171,9 +175,18 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         packet.replyToUser = msg.getReplyToUser();
         packet.replyToContent = msg.getReplyToContent();
         packet.mentions = msg.getMentions();
+        packet.receiverId = receiverId;
         String json = GSON.toJson(packet);
-        registry.broadcast(currentUserId, json);
-        ctx.writeAndFlush(new TextWebSocketFrame(json));
+        if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {
+            registry.broadcast(currentUserId, json);
+            ctx.writeAndFlush(new TextWebSocketFrame(json));
+        } else {
+            Channel targetCh = registry.get(receiverId);
+            if (targetCh != null && targetCh.isActive()) {
+                targetCh.writeAndFlush(new TextWebSocketFrame(json));
+            }
+            ctx.writeAndFlush(new TextWebSocketFrame(json));
+        }
     }
 
     private static final long RECALL_MAX_MS = 2 * 60 * 1000L;
@@ -226,24 +239,36 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         try {
             for (NeuroDbClient.ScanRecord rec : neuroDb.scan(startKey, endKey)) {
                 if (rec.value == null || rec.value.isBlank()) continue;
-                Message m = GSON.fromJson(rec.value, Message.class);
-                if (m == null) continue;
-                String senderId = m.getSenderId();
-                if (senderId == null || senderId.isEmpty()) continue;
-                if (lastTs > 0 && m.getTimestamp() <= lastTs) continue;
-                long msgId = m.getMessageId();
-                if (msgId == 0) msgId = rec.key;
-                ChatMessagePacket p = new ChatMessagePacket();
-                p.messageId = String.valueOf(msgId);
-                p.senderId = senderId;
-                p.content = m.isRecalled() ? "" : (m.getContent() != null ? m.getContent() : "");
-                p.timestamp = m.getTimestamp();
-                p.isRecalled = m.isRecalled();
-                p.replyToId = m.getReplyToId() == null ? null : String.valueOf(m.getReplyToId());
-                p.replyToUser = m.getReplyToUser();
-                p.replyToContent = m.getReplyToContent();
-                p.mentions = m.getMentions();
-                list.add(p);
+                String trimmed = rec.value.trim();
+                if (!trimmed.startsWith("{")) continue;
+                try {
+                    Message m = GSON.fromJson(rec.value, Message.class);
+                    if (m == null) continue;
+                    String senderId = m.getSenderId();
+                    if (senderId == null || senderId.isEmpty()) continue;
+                    if (lastTs > 0 && m.getTimestamp() <= lastTs) continue;
+                    String recvId = m.getReceiverId();
+                    boolean isPublic = (recvId == null || recvId.isEmpty() || "PUBLIC".equalsIgnoreCase(recvId));
+                    boolean isSender = currentUserId.equals(senderId);
+                    boolean isReceiver = currentUserId.equals(recvId);
+                    if (!isPublic && !isSender && !isReceiver) continue;
+                    long msgId = m.getMessageId();
+                    if (msgId == 0) msgId = rec.key;
+                    ChatMessagePacket p = new ChatMessagePacket();
+                    p.messageId = String.valueOf(msgId);
+                    p.senderId = senderId;
+                    p.content = m.isRecalled() ? "" : (m.getContent() != null ? m.getContent() : "");
+                    p.timestamp = m.getTimestamp();
+                    p.isRecalled = m.isRecalled();
+                    p.replyToId = m.getReplyToId() == null ? null : String.valueOf(m.getReplyToId());
+                    p.replyToUser = m.getReplyToUser();
+                    p.replyToContent = m.getReplyToContent();
+                    p.mentions = m.getMentions();
+                    p.receiverId = recvId;
+                    list.add(p);
+                } catch (Exception e) {
+                    // 非 Message JSON（如 User、数组等）跳过
+                }
             }
         } catch (IOException e) {
             log.warn("NeuroDB scan failed: {}", e.getMessage());
