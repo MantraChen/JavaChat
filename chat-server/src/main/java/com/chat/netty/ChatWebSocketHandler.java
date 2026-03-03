@@ -135,7 +135,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         String content = (String) map.get("content");
         if (content == null) content = "";
         long ts = System.currentTimeMillis();
-        int messageId = snowflakeId.nextId();
+        long messageId = snowflakeId.nextId();
         Message msg = new Message(messageId, currentUserId, content, ts);
         Object rtId = map.get("replyToId");
         if (rtId != null) msg.setReplyToId(((Number) rtId).longValue());
@@ -173,7 +173,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     private void handleRecall(ChannelHandlerContext ctx, Map<String, Object> map) {
         Object midObj = map.get("messageId");
         if (midObj == null) { sendError(ctx, "messageId required"); return; }
-        int messageId = ((Number) midObj).intValue();
+        long messageId = ((Number) midObj).longValue();
         String json;
         try {
             json = neuroDb.get(messageId);
@@ -202,13 +202,13 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     }
 
     /** 全量拉取历史时从 0 开始扫，非消息记录（如用户）会在解析时被过滤掉。 */
-    private static final int SYNC_ALL_START_KEY = 0;
+    private static final long SYNC_ALL_START_KEY = 0L;
 
     private void handleSync(ChannelHandlerContext ctx, Map<String, Object> map) {
         Object tsObj = map.get("lastTimestamp");
         long lastTs = tsObj instanceof Number ? ((Number) tsObj).longValue() : 0L;
-        int startKey = lastTs <= 0 ? SYNC_ALL_START_KEY : SnowflakeId.timestampToStartKey(lastTs);
-        int endKey = Integer.MAX_VALUE;
+        long startKey = lastTs <= 0 ? SYNC_ALL_START_KEY : SnowflakeId.timestampToStartKey(lastTs);
+        long endKey = Long.MAX_VALUE;
         List<ChatMessagePacket> list = new ArrayList<>();
         try {
             for (NeuroDbClient.ScanRecord rec : neuroDb.scan(startKey, endKey)) {

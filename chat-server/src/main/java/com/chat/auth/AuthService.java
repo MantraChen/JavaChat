@@ -45,9 +45,9 @@ public class AuthService {
 
     /** 新用户 ID（int 兼容 NeuroDB key），从 USER_ID_START 起。 */
     private int nextUserId() throws IOException {
-        String raw = neuroDb.get(0);
+        String raw = neuroDb.get(0L);
         int next = (raw != null && !raw.isEmpty()) ? Integer.parseInt(raw.trim()) : USER_ID_START;
-        neuroDb.put(0, String.valueOf(next + 1));
+        neuroDb.put(0L, String.valueOf(next + 1));
         return next;
     }
 
@@ -56,23 +56,23 @@ public class AuthService {
         if (username == null || (username = username.trim()).isEmpty() || password == null || password.isEmpty())
             return "用户名或密码为空";
         int nameKey = usernameToKey(username);
-        if (neuroDb.get(nameKey) != null)
+        if (neuroDb.get((long) nameKey) != null)
             return "用户名已存在";
         int userId = nextUserId();
         String hash = BCrypt.hashpw(password, BCrypt.gensalt(10));
         User user = new User(userId, username, hash, "USER", "PENDING");
-        neuroDb.put(userId, gson.toJson(user));
-        neuroDb.put(nameKey, String.valueOf(userId));
+        neuroDb.put((long) userId, gson.toJson(user));
+        neuroDb.put((long) nameKey, String.valueOf(userId));
         List<Long> pending = getPendingUserIds();
         pending.add((long) userId);
-        neuroDb.put(KEY_PENDING_LIST, gson.toJson(pending));
+        neuroDb.put((long) KEY_PENDING_LIST, gson.toJson(pending));
         log.info("Registered user {} (userId={}), status=PENDING", username, userId);
         return null;
     }
 
     @SuppressWarnings("unchecked")
     public List<Long> getPendingUserIds() throws IOException {
-        String json = neuroDb.get(KEY_PENDING_LIST);
+        String json = neuroDb.get((long) KEY_PENDING_LIST);
         if (json == null || json.isBlank()) return new ArrayList<>();
         List<Long> list = gson.fromJson(json, LIST_LONG);
         return list != null ? list : new ArrayList<>();
@@ -80,7 +80,7 @@ public class AuthService {
 
     /** 按 userId 取用户（key 即 userId）。 */
     public User getUserByUserId(int userId) throws IOException {
-        String json = neuroDb.get(userId);
+        String json = neuroDb.get((long) userId);
         if (json == null || json.isBlank()) return null;
         return gson.fromJson(json, User.class);
     }
@@ -90,10 +90,10 @@ public class AuthService {
         User u = getUserByUserId(userId);
         if (u == null) return;
         u.setStatus("APPROVED");
-        neuroDb.put(userId, gson.toJson(u));
+        neuroDb.put((long) userId, gson.toJson(u));
         List<Long> pending = getPendingUserIds();
         pending.remove((Long) (long) userId);
-        neuroDb.put(KEY_PENDING_LIST, gson.toJson(pending));
+        neuroDb.put((long) KEY_PENDING_LIST, gson.toJson(pending));
         log.info("Approved userId={}", userId);
     }
 
@@ -102,10 +102,10 @@ public class AuthService {
         User u = getUserByUserId(userId);
         if (u == null) return;
         u.setStatus("REJECTED");
-        neuroDb.put(userId, gson.toJson(u));
+        neuroDb.put((long) userId, gson.toJson(u));
         List<Long> pending = getPendingUserIds();
         pending.remove((Long) (long) userId);
-        neuroDb.put(KEY_PENDING_LIST, gson.toJson(pending));
+        neuroDb.put((long) KEY_PENDING_LIST, gson.toJson(pending));
         log.info("Rejected userId={}", userId);
     }
 
@@ -117,7 +117,7 @@ public class AuthService {
         int legacyKey = userIdToKey(username);
         String json;
         try {
-            json = neuroDb.get(legacyKey);
+            json = neuroDb.get((long) legacyKey);
         } catch (IOException e) {
             log.warn("NeuroDB get user failed: {}", e.getMessage());
             return null;
@@ -132,7 +132,7 @@ public class AuthService {
         // 新体系：username -> userId -> User
         int nameKey = usernameToKey(username);
         try {
-            String idStr = neuroDb.get(nameKey);
+            String idStr = neuroDb.get((long) nameKey);
             if (idStr == null || idStr.isBlank()) return null;
             int userId = Integer.parseInt(idStr.trim());
             User user = getUserByUserId(userId);
@@ -160,8 +160,8 @@ public class AuthService {
     public boolean userExists(String username) throws IOException {
         if (username == null) return false;
         if ("A".equalsIgnoreCase(username) || "B".equalsIgnoreCase(username) || "C".equalsIgnoreCase(username))
-            return neuroDb.get(userIdToKey(username)) != null;
-        return neuroDb.get(usernameToKey(username)) != null;
+            return neuroDb.get((long) userIdToKey(username)) != null;
+        return neuroDb.get((long) usernameToKey(username)) != null;
     }
 
     /** 仅用于兼容旧版初始化 A/B/C。 */
@@ -169,18 +169,18 @@ public class AuthService {
         String hash = BCrypt.hashpw(plainPassword, BCrypt.gensalt(10));
         User user = new User(id, hash);
         int key = userIdToKey(id);
-        neuroDb.put(key, gson.toJson(user));
+        neuroDb.put((long) key, gson.toJson(user));
     }
 
     /** 初始化管理员账号（username=admin, 需 APPROVED）。 */
     public void initAdminIfAbsent(String adminUsername, String password) throws IOException {
         int nameKey = usernameToKey(adminUsername);
-        if (neuroDb.get(nameKey) != null) return;
+        if (neuroDb.get((long) nameKey) != null) return;
         int userId = nextUserId();
         String hash = BCrypt.hashpw(password, BCrypt.gensalt(10));
         User admin = new User(userId, adminUsername, hash, "ADMIN", "APPROVED");
-        neuroDb.put(userId, gson.toJson(admin));
-        neuroDb.put(nameKey, String.valueOf(userId));
+        neuroDb.put((long) userId, gson.toJson(admin));
+        neuroDb.put((long) nameKey, String.valueOf(userId));
         log.info("Initialized admin user {}", adminUsername);
     }
 }
