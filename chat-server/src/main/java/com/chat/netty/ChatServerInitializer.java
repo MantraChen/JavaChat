@@ -9,6 +9,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolConfig;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
@@ -45,6 +46,8 @@ public class ChatServerInitializer extends ChannelInitializer<SocketChannel> {
                 .maxFramePayloadLength(10 * 1024 * 1024)
                 .build();
         p.addLast(new WebSocketServerProtocolHandler(wsConfig));
+        // 碎帧聚合器：把 ContinuationWebSocketFrame 等拼成完整帧再交给业务，避免半截 JSON 解析崩溃或非 Text 帧导致断连
+        p.addLast(new WebSocketFrameAggregator(10 * 1024 * 1024));
         p.addLast(new HttpStaticHandler());
         p.addLast(new ChatWebSocketHandler(authService, jwtUtil, neuroDb, registry, redisBus, uploadDir));
     }
