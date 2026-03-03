@@ -332,6 +332,13 @@
       var allMessages = [];
       var currentSessionId = 'PUBLIC';
       var pendingAckTimers = {};  // localId -> timerId
+      var syncCursors = { PUBLIC: 0, INBOX: 0 };
+
+      function requestSync(target) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        var payload = { type: 'sync', target: target, lastTimestamp: syncCursors[target] };
+        ws.send(JSON.stringify(payload));
+      }
       var typingIndicatorEl = document.getElementById('typing-indicator');
       var typingClearTimer = null;
       var typingSendTimer = null;
@@ -389,6 +396,8 @@
             sessionListEl.querySelectorAll('.session-item').forEach(function(x) { x.classList.remove('active'); });
             el.classList.add('active');
             renderCurrentSession();
+            var target = currentSessionId === 'PUBLIC' ? 'PUBLIC' : 'INBOX';
+            requestSync(target);
           });
         });
       }
@@ -606,9 +615,11 @@
               authenticated = true;
               allMessages = [];
               currentSessionId = 'PUBLIC';
+              syncCursors = { PUBLIC: 0, INBOX: 0 };
               if (headerTitleEl) headerTitleEl.textContent = '公共大厅';
               messagesEl.innerHTML = '';
-              ws.send(JSON.stringify({ type: 'sync', lastTimestamp: 0 }));
+              requestSync('PUBLIC');
+              requestSync('INBOX');
             } else if (data.type === 'auth_fail') {
               authenticated = false;
               if (headerTitleEl) headerTitleEl.textContent = '认证失败，请刷新页面重新登录';
@@ -640,6 +651,12 @@
             } else if (data.type === 'RECALL') {
               applyRecall(data.messageId, data.senderId);
             } else if (data.type === 'sync_result' && Array.isArray(data.messages)) {
+              var targetKey = (data.target === 'PUBLIC' || data.target === 'INBOX') ? data.target
+                : (data.messages.length > 0 && data.messages[0].receiverId && data.messages[0].receiverId !== 'PUBLIC') ? 'INBOX' : 'PUBLIC';
+              if (data.messages.length > 0) {
+                var maxTs = data.messages[data.messages.length - 1].timestamp;
+                syncCursors[targetKey] = Math.max(syncCursors[targetKey] || 0, maxTs);
+              }
               data.messages.forEach(function(m) {
                 appendMessage(m, m.senderId === userId);
               });

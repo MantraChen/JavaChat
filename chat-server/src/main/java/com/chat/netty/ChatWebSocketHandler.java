@@ -372,6 +372,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         }
         list.sort(Comparator.comparingLong(p -> p.timestamp));
         SyncResultPacket result = new SyncResultPacket();
+        result.target = isPublicSync ? "PUBLIC" : "INBOX";
         result.messages = list;
         send(ctx, result);
     }
