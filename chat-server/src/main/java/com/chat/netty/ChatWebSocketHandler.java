@@ -209,6 +209,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         String localId = (String) map.get("localId");
         if (redisBus.isEnabled()) {
             redisBus.publish(json);
+            // 【关键】立刻给自己回写一条，否则 Redis 订阅者里 broadcast 会跳过发送者，自己永远收不到
             ctx.writeAndFlush(new TextWebSocketFrame(json));
         } else {
             if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {

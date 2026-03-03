@@ -203,8 +203,8 @@
       flex-shrink: 0;
     }
     .chat-input-row button:hover { background: #000000; }
-    .chat-input-row .btn-image { background: #0a7ea4; min-width: 80px; }
-    .chat-input-row .btn-image:hover { background: #086486; }
+    .chat-input-row .btn-image { background: #555; padding: 12px 16px; font-size: 14px; }
+    .chat-input-row .btn-image:hover { background: #444; }
     #mention-dropdown { position: absolute; bottom: 100%; left: 20px; right: 20px; margin-bottom: 4px; background: #fff; border: 1px solid #eee; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); max-height: 160px; overflow-y: auto; display: none; z-index: 10; }
     #mention-dropdown.visible { display: block; }
     #mention-dropdown .item { padding: 8px 12px; cursor: pointer; font-size: 14px; }
@@ -244,8 +244,8 @@
           <div class="quote-preview" id="quote-preview" style="display:none;"><span id="quote-text"></span><span class="clear" id="quote-clear">×</span></div>
           <div id="mention-dropdown"></div>
           <div class="chat-input-row">
-            <input type="file" id="input-file" accept="image/*" style="display:none">
-            <button type="button" id="btn-image" class="btn-image" title="发送图片">📷 图片</button>
+            <input type="file" id="input-image" accept="image/*" style="display:none">
+            <button type="button" id="btn-image" class="btn-image" title="发送图片">图片</button>
             <input type="text" id="input-msg" placeholder="输入消息，@ 提及他人，回车发送" autocomplete="off">
             <button type="button" id="btn-send">发送</button>
           </div>
@@ -446,8 +446,14 @@
           img.src = data.content;
           img.alt = '图片';
           img.className = 'msg-image';
+          img.style.maxWidth = '250px';
+          img.style.borderRadius = '8px';
+          img.style.cursor = 'pointer';
           img.loading = 'lazy';
-          img.onclick = function() { window.open(data.content, '_blank'); };
+          img.onclick = function() {
+            var w = window.open('');
+            if (w) w.document.write('<img src="' + data.content + '" style="max-width: 100%;">');
+          };
           text.appendChild(img);
         } else {
           text.textContent = data.content || '';
@@ -697,27 +703,41 @@
 
       btnSend.addEventListener('click', function() { sendChat(); });
 
-      var inputFile = document.getElementById('input-file');
+      var inputImage = document.getElementById('input-image');
       var btnImage = document.getElementById('btn-image');
-      if (btnImage) btnImage.addEventListener('click', function() { if (inputFile) inputFile.click(); });
-      if (inputFile) inputFile.addEventListener('change', function() {
-        var file = inputFile.files && inputFile.files[0];
+      if (btnImage) btnImage.addEventListener('click', function() { if (inputImage) inputImage.click(); });
+      if (inputImage) inputImage.addEventListener('change', function(e) {
+        var file = e.target.files[0];
         if (!file || !file.type.startsWith('image/')) return;
-        var fd = new FormData();
-        fd.append('file', file);
-        var base = (API_BASE || '').replace(/\/$/, '') || '';
-        fetch(base + '/api/upload', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
-          body: fd
-        }).then(function(r) { return r.json(); }).then(function(json) {
-          if (json.url) {
-            var url = json.url;
-            if (base && url.indexOf('/') === 0) url = base + url;
-            sendChat(url, 'image');
+        if (file.size > 2 * 1024 * 1024) {
+          alert('图片请小于 2MB，以便稳定发送');
+          inputImage.value = '';
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+          var base64String = ev.target.result;
+          if (!ws || ws.readyState !== WebSocket.OPEN || !authenticated) {
+            alert('未连接，请刷新后重试');
+            return;
           }
-        }).catch(function() {});
-        inputFile.value = '';
+          var localId = genLocalId();
+          var payload = { type: 'chat', msgType: 'image', content: base64String, localId: localId };
+          if (currentSessionId && currentSessionId !== 'PUBLIC') payload.receiverId = currentSessionId;
+          var optData = { localId: localId, content: base64String, senderId: userId, timestamp: Date.now(), sending: true, msgType: 'image', mentions: [] };
+          allMessages.push({ data: optData, isSelf: true, sessionId: currentSessionId });
+          appendMessageToDOM(optData, true);
+          if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+          pendingAckTimers[localId] = setTimeout(function() { markSendFailed(localId); }, 5000);
+          try {
+            ws.send(JSON.stringify(payload));
+          } catch (err) {
+            markSendFailed(localId);
+          }
+        };
+        reader.onerror = function() { alert('读取图片失败'); };
+        reader.readAsDataURL(file);
+        inputImage.value = '';
       });
 
       var mentionDropdown = document.getElementById('mention-dropdown');
