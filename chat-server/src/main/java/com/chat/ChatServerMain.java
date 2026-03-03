@@ -6,6 +6,7 @@ import com.chat.config.AppConfig;
 import com.chat.netty.ChannelRegistry;
 import com.chat.netty.ChatServerInitializer;
 import com.chat.neurodb.NeuroDbClient;
+import com.chat.redis.RedisChatBus;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
@@ -25,10 +26,27 @@ public class ChatServerMain {
 
     public static void main(String[] args) throws InterruptedException {
         AppConfig config = new AppConfig();
+        String redisHost = System.getenv("REDIS_HOST");
+        if (redisHost != null && !redisHost.isBlank()) config.setRedisHost(redisHost);
+        String redisPort = System.getenv("REDIS_PORT");
+        if (redisPort != null && !redisPort.isBlank()) {
+            try { config.setRedisPort(Integer.parseInt(redisPort)); } catch (NumberFormatException ignored) {}
+        }
+        String wsPort = System.getenv("WEBSOCKET_PORT");
+        if (wsPort != null && !wsPort.isBlank()) {
+            try { config.setWebsocketPort(Integer.parseInt(wsPort)); } catch (NumberFormatException ignored) {}
+        }
         NeuroDbClient neuroDb = new NeuroDbClient(config);
         JwtUtil jwtUtil = new JwtUtil(config.getJwtSecret(), config.getJwtExpirationMs());
         AuthService authService = new AuthService(neuroDb, config, jwtUtil);
         ChannelRegistry registry = new ChannelRegistry();
+        RedisChatBus redisBus = new RedisChatBus(
+                config.getRedisHost(), config.getRedisPort(), registry);
+        if (redisBus.isEnabled()) {
+            redisBus.start();
+        } else {
+            log.info("Redis not configured (REDIS_HOST empty): single-node mode, messages only within this process");
+        }
 
         try {
             for (String id : new String[]{"A", "B", "C"}) {
@@ -48,11 +66,12 @@ public class ChatServerMain {
             ServerBootstrap b = new ServerBootstrap();
             b.group(boss, worker)
                     .channel(NioServerSocketChannel.class)
-                    .childHandler(new ChatServerInitializer(authService, jwtUtil, neuroDb, registry))
+                    .childHandler(new ChatServerInitializer(authService, jwtUtil, neuroDb, registry, redisBus, config.getUploadDir()))
                     .childOption(ChannelOption.SO_KEEPALIVE, true);
 
             Channel ch = b.bind(config.getWebsocketPort()).sync().channel();
-            log.info("Chat server started: HTTP login on port {}, WebSocket on /ws", config.getWebsocketPort());
+            log.info("Chat server started: HTTP login on port {}, WebSocket on /ws{}",
+                    config.getWebsocketPort(), config.isRedisEnabled() ? " (Redis Pub/Sub enabled)" : "");
             ch.closeFuture().sync();
         } finally {
             boss.shutdownGracefully();

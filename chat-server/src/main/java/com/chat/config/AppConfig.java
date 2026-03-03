@@ -17,6 +17,11 @@ public class AppConfig {
     /** 首次启动时创建的管理员账号（若不存在） */
     private String adminUsername = "admin";
     private String adminPassword = "admin123";
+    /** Redis 地址：为空或 null 时不启用，单机模式；设置后启用 Pub/Sub 跨节点路由 */
+    private String redisHost = "";
+    private int redisPort = 6379;
+    /** 图片上传保存目录（相对或绝对路径），GET /files/xxx 从此目录提供 */
+    private String uploadDir = "upload";
 
     public String getNeuroDbHttpUrl() { return neuroDbHttpUrl; }
     public void setNeuroDbHttpUrl(String neuroDbHttpUrl) { this.neuroDbHttpUrl = neuroDbHttpUrl; }
@@ -34,4 +39,12 @@ public class AppConfig {
     public void setAdminUsername(String adminUsername) { this.adminUsername = adminUsername; }
     public String getAdminPassword() { return adminPassword; }
     public void setAdminPassword(String adminPassword) { this.adminPassword = adminPassword; }
+    public String getRedisHost() { return redisHost; }
+    public void setRedisHost(String redisHost) { this.redisHost = redisHost; }
+    public int getRedisPort() { return redisPort; }
+    public void setRedisPort(int redisPort) { this.redisPort = redisPort; }
+    /** 是否启用 Redis 跨节点消息总线 */
+    public boolean isRedisEnabled() { return redisHost != null && !redisHost.isBlank(); }
+    public String getUploadDir() { return uploadDir; }
+    public void setUploadDir(String uploadDir) { this.uploadDir = uploadDir; }
 }
