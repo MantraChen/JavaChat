@@ -85,6 +85,69 @@ public class AuthService {
         return gson.fromJson(json, User.class);
     }
 
+    /** 按用户名或数字 userId 取用户（JWT subject 可能是 username 或旧版 A/B/C）。 */
+    public User getUserByUsernameOrId(String usernameOrId) throws IOException {
+        if (usernameOrId == null || usernameOrId.trim().isEmpty()) return null;
+        String s = usernameOrId.trim();
+        try {
+            int userId = Integer.parseInt(s);
+            if (userId >= USER_ID_START && userId < USERNAME_MAP_NS) {
+                User u = getUserByUserId(userId);
+                if (u != null) return u;
+            }
+        } catch (NumberFormatException ignored) {}
+        int legacyKey = userIdToKey(s);
+        String json = neuroDb.get((long) legacyKey);
+        if (json != null && !json.isBlank()) {
+            User u = gson.fromJson(json, User.class);
+            if (u != null && s.equals(u.getId())) return u;
+        }
+        int nameKey = usernameToKey(s);
+        String idStr = neuroDb.get((long) nameKey);
+        if (idStr == null || idStr.isBlank()) return null;
+        try {
+            int userId = Integer.parseInt(idStr.trim());
+            return getUserByUserId(userId);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** 扫描用户 key 范围，返回所有状态为 APPROVED 的用户（通讯录用）。 */
+    public List<User> getAllApprovedUsers() throws IOException {
+        List<User> out = new ArrayList<>();
+        for (NeuroDbClient.ScanRecord rec : neuroDb.scan(USER_ID_START, USERNAME_MAP_NS)) {
+            if (rec.value == null || rec.value.isBlank() || !rec.value.trim().startsWith("{")) continue;
+            try {
+                User u = gson.fromJson(rec.value, User.class);
+                if (u != null && "APPROVED".equals(u.getStatus())) out.add(u);
+            } catch (Exception ignored) {}
+        }
+        return out;
+    }
+
+    /** 扫描用户 key 范围，返回所有用户（管理后台用，含 status）。 */
+    public List<User> getAllUsers() throws IOException {
+        List<User> out = new ArrayList<>();
+        for (NeuroDbClient.ScanRecord rec : neuroDb.scan(USER_ID_START, USERNAME_MAP_NS)) {
+            if (rec.value == null || rec.value.isBlank() || !rec.value.trim().startsWith("{")) continue;
+            try {
+                User u = gson.fromJson(rec.value, User.class);
+                if (u != null) out.add(u);
+            } catch (Exception ignored) {}
+        }
+        return out;
+    }
+
+    /** 通用状态修改：MUTED / BANNED / APPROVED 等，仅更新 NeuroDB 中的用户 JSON。 */
+    public void changeUserStatus(int userId, String newStatus) throws IOException {
+        User u = getUserByUserId(userId);
+        if (u == null) return;
+        u.setStatus(newStatus);
+        neuroDb.put((long) userId, gson.toJson(u));
+        log.info("Changed userId={} status to {}", userId, newStatus);
+    }
+
     /** 审批通过：更新 status=APPROVED，从待审核列表移除。 */
     public void approve(int userId) throws IOException {
         User u = getUserByUserId(userId);
