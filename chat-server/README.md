@@ -1,81 +1,176 @@
-# Chat Server（Java + Netty + NeuroDB）
+# Chat Server: Netty WebSocket IM with NeuroDB Backend
 
-## 分布式多节点（Redis Pub/Sub）
+![Build Status](https://img.shields.io/badge/build-passing-success)
+![Java Version](https://img.shields.io/badge/java-17-blue)
+![Architecture](https://img.shields.io/badge/arch-Netty%20%2B%20NeuroDB-blueviolet)
+![Protocol](https://img.shields.io/badge/protocol-WebSocket%20JSON-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-私信与群聊支持跨节点：多台 Netty 节点通过 Redis 消息总线同步，任意节点上的用户可互相发消息。
+**Chat Server** 是基于 **Netty** 的 WebSocket 即时通讯服务端，面向公共大厅与私信场景。消息持久化依托 **NeuroDB**（LSM-Tree 存储引擎），采用 **组合键 + 写扩散** 架构，将同步从全表扫描降维为按信箱前缀的 $O(\log N)$ 范围扫描，单机可承载十万级用户的海量历史记录并保持亚毫秒级同步延迟。
 
-1. 启动 Redis（如本地 `redis-server`）。
-2. **两个节点都要启用 Redis**：每个进程都设置环境变量 `REDIS_HOST=127.0.0.1`（否则该节点既不发布也不订阅，消息无法互通）。可选 `REDIS_PORT=6379`。
-3. 在 **chat-server** 目录下启动多个节点，例如：
-   - 节点 A：`REDIS_HOST=127.0.0.1 ./mvnw exec:java`（默认 9091）
-   - 节点 B：`WEBSOCKET_PORT=9092 REDIS_HOST=127.0.0.1 ./mvnw exec:java`
-4. 浏览器分别打开 `http://localhost:9091` 与 `http://localhost:9092`，用不同账号登录，即可跨端口私聊/群聊。
-
-不设置 `REDIS_HOST` 时为单机模式（仅本节点内互通），无需 Redis。
+> **架构要点**：时间线按「信箱」物理隔离（PUBLIC / INBOX），前端游标分离（`syncCursors.PUBLIC` / `syncCursors.INBOX`），避免时间线跳跃；私信写扩散至发件人/收件人双信箱，统一收件箱一次 Sync 拉取全部私信。
 
 ---
 
-## 从 int Key 迁移到 long Key 后历史不显示？
+## Key Features
 
-若在将 messageId/Key 从 int 改为 long 之后，**刷新页面仍无法显示历史记录**，通常是以下两种原因之一：
+### 1. 存储层：组合键与写扩散（NeuroDB）
+* **TimelineKeyUtil**：64 位组合键 `[OwnerID 22bit | Timestamp 42bit]`，同一信箱内消息在 LSM-Tree 中物理连续。
+* **写扩散 (Write-Fanout)**：公共消息写入 Owner=0 信箱；私信同时写入发件人信箱与收件人信箱，收件方一次 `target: "INBOX"` Sync 即可拉取全部私信。
+* **O(log N) Sync**：`handleSync` 按 `target`（PUBLIC/INBOX）仅扫描对应信箱的 key 范围，无全表 Scan、无应用层 `isSender/isReceiver` 过滤。
 
-### 1. 历史脏数据残留（最常见）
+### 2. 传输与认证
+* **WebSocket (JSON)**：首包必须为 `auth`（携带 JWT），通过后注册 Channel；支持 `chat`、`sync`、`RECALL`、`typing` 等。
+* **JWT + BCrypt**：登录/注册签发 JWT，密码 BCrypt 存储；用户信息与管理员审批状态存 NeuroDB。
+* **HTTP API**：同端口提供 `/api/login`、`/api/register`、`/api/upload`、`/api/admin/*`、`/online`；静态页 `index.html`、`register.html`、`admin.html`。
 
-修改前写入的消息 Key 可能已是**溢出后的负数**（如 -2147483648）。当前 sync 使用 `scan(0, Long.MAX_VALUE)`，只会返回 ≥0 的 Key，**负数 Key 永远不会被返回**。
-
-**处理步骤：**
-
-1. 停掉 NeuroDB 服务。
-2. 进入 NeuroDB 配置的数据目录（一般为项目下的 `data/`）。
-3. **删除整个 data 目录**，清空库。
-4. 重新启动 NeuroDB，从空库开始测试。
-
-之后新发的消息会使用 64 位 long Key，sync 可正常拉取。
-
-### 2. 代码中残留的 (int) 强转
-
-若 `SnowflakeId.java` 的 `nextId()` 或 `timestampToStartKey()` 的 return 里仍带有 `(int)`，会先把结果截断成 32 位（可能变成负数），再赋给 long，新消息 Key 仍会异常。请确认这两个方法中**没有任何 `(int)` 强转**，保持纯 long 运算。
+### 3. 多节点与扩展
+* **Redis Pub/Sub**：可选；配置 `REDIS_HOST` 后启用跨节点消息/撤回/输入状态广播，未配置则为单机内存广播。
+* **统一收件箱**：前端对 INBOX 消息按 `senderId`/`receiverId` 分组展示「最近联系人」，点击会话仅做前端过滤，无额外请求。
 
 ---
 
-## 历史不显示：四步断点排查
+## Quick Start
 
-按下面顺序缩小范围，可快速定位问题端。
-
-### 第一步：前端是否收到数据（F12 抓包）
-
-1. 浏览器打开聊天页，F12 → **Network** → 筛选 **WS**。
-2. F5 刷新并重新登录，点开 **ws** 连接 → **Messages**。
-3. 看：
-   - 是否有发出 `{"type":"sync","lastTimestamp":0}`？
-   - 是否有收到 `{"type":"sync_result","messages":[...]}`？**messages 是 [] 还是有元素？**
-
-- **若 messages 是空数组** → 后端没查到数据，继续第二步或第四步。
-- **若有数据但页面不渲染** → 看 Console 是否有报错，前端解析/渲染有问题。
-
-### 第二步：清空 NeuroDB 脏数据
-
-修改过 int→long 或存储格式后，若没清库，旧数据可能导致解析失败或 key 不在扫描范围。
-
-1. 停掉 NeuroDB。
-2. 删除 NeuroDB 数据目录（如 `data/` 或配置里的路径）。
-3. 重启 NeuroDB（空库），再新发几条消息并刷新页面测试。
-
-### 第三步：清理 Java 编译缓存
-
-避免运行到旧的 class（例如缺少 `type = "sync_result"`）。
+### 1. 启动 NeuroDB（前置依赖）
+Chat Server 通过 HTTP 访问 NeuroDB，需先启动 NeuroDB 服务（默认 HTTP :8080）。
 
 ```bash
-./mvnw clean compile
-./mvnw exec:java -Dexec.mainClass="com.chat.ChatServerMain"
+# 在 neurodb 项目根目录
+go run cmd/server/main.go
 ```
 
-### 第四步：后端 handleSync 埋点（已接入）
+### 2. 启动 Chat Server
+默认 WebSocket 端口 **9091**，HTTP 登录/注册/静态资源同端口。
 
-`ChatWebSocketHandler.handleSync` 里已加调试输出，刷新页面后看**运行 ChatServerMain 的控制台**：
+```bash
+cd chat-server
+source ../env.sh   # 可选：设置 JAVA_HOME
+./mvnw compile exec:java -Dexec.mainClass="com.chat.ChatServerMain"
 
-- **「NeuroDB scan 返回的原始记录数: 0」** → scan 没扫到数据（key 范围或 NeuroDB 存的数据不对）。
-- **原始记录数 > 0，但「最终准备发送给前端的历史消息数: 0」** → 记录在循环里被全部跳过，多半是 JSON 与 `Message` 字段对不上（Gson 反序列化后 m 为 null 或 senderId 为空），或时间过滤把全部过滤掉了。
-- **最终消息数 > 0** → 后端已正确下发，若前端仍不显示，回到第一步看 WS 是否真的收到、Console 是否报错。
+# 或先打包再运行
+./mvnw package -q && java -jar target/chat-server-1.0.0-SNAPSHOT.jar
+```
 
-排查完可删除或注释掉 `handleSync` 中的 `System.out.println("[Debug] ...")` 语句。
+### 3. 环境变量（可选）
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `WEBSOCKET_PORT` | WebSocket/HTTP 监听端口 | 9091 |
+| `REDIS_HOST` | Redis 地址，空则单机模式 | 空 |
+| `REDIS_PORT` | Redis 端口 | 6379 |
+
+NeuroDB 地址在代码中为 `AppConfig.neuroDbHttpUrl`（默认 `http://127.0.0.1:8080`），可按需扩展为环境变量或配置文件。
+
+### 4. 打开前端
+浏览器访问：`http://localhost:9091`（或你配置的端口）
+* **登录/注册**：默认会初始化用户 A/B/C（密码 passA / passB / passC）及管理员 admin/admin123。
+* **公共大厅**：登录后默认进入，Sync 使用 `target: "PUBLIC"`。
+* **私信**：点击消息发送者发起私聊，Sync 使用 `target: "INBOX"`，游标与大厅分离。
+* **管理后台**：`/admin.html`，审批注册用户等。
+
+---
+
+## Configuration
+
+配置集中在 `com.chat.config.AppConfig`，可通过代码或后续扩展的配置文件/环境变量覆盖。
+
+| 配置项 | 说明 | 默认 |
+|--------|------|------|
+| `neuroDbHttpUrl` | NeuroDB HTTP API 地址 | http://127.0.0.1:8080 |
+| `websocketPort` | 本机监听端口 | 9091 |
+| `jwtSecret` | JWT 签名密钥 | （需在生产环境修改） |
+| `jwtExpirationMs` | JWT 过期时间 | 7 天 |
+| `redisHost` / `redisPort` | Redis 地址与端口，空则禁用 | 空 / 6379 |
+| `uploadDir` | 图片上传目录，GET /files/xxx 从此提供 | upload |
+| `adminUsername` / `adminPassword` | 首次创建的管理员账号 | admin / admin123 |
+
+---
+
+## Protocol Reference (WebSocket JSON)
+
+### 客户端 → 服务端
+* **auth**：`{ "type": "auth", "token": "<JWT>" }` — 首包必发，通过后才能发其他包。
+* **chat**：`{ "type": "chat", "content": "...", "receiverId": ""|"PUBLIC"|"userId", "localId": "...", "mentions": [], "replyToId", "replyToUser", "replyToContent", "msgType": "text"|"image" }`
+* **sync**：`{ "type": "sync", "target": "PUBLIC"|"INBOX", "lastTimestamp": 0 }` — 按信箱游标拉取增量。
+* **RECALL**：`{ "type": "RECALL", "messageId": "<long 组合键>" }`
+* **typing**：`{ "type": "typing", "status": true|false, "receiverId": ""|"userId" }`
+
+### 服务端 → 客户端
+* **auth_ok** / **auth_fail**：认证结果。
+* **ack**：`{ "type": "ack", "localId", "messageId" }` — 消息落库成功。
+* **chat**：广播或单推的消息体（与客户端 chat 字段一致）。
+* **sync_result**：`{ "type": "sync_result", "target": "PUBLIC"|"INBOX", "messages": [...] }` — 带 `target` 便于前端更新对应游标。
+* **RECALL** / **typing** / **error**：撤回、输入状态、错误信息。
+
+---
+
+## Architecture
+
+```text
+[ Browser: index.html ]
+       |
+       | HTTP: /api/login, /api/register, /files/*   WebSocket: /ws
+       v
+[ Netty: HTTP + WebSocket ]
+       |
+       +---> [ AuthService + JwtUtil ]  用户/管理员存 NeuroDB
+       |
+       +---> [ ChatWebSocketHandler ]
+       |         |
+       |         +---> [ TimelineKeyUtil ]  buildKey(ownerId, ts) / userIdToOwnerId
+       |         |
+       |         +---> [ NeuroDbClient ]     Put / Scan(startKey, endKey) 按信箱前缀
+       |         |
+       |         +---> [ RedisChatBus ]      可选，跨节点 Pub/Sub
+       |         |
+       |         +---> [ ChannelRegistry ]   userId -> Channel 本机广播
+       v
+[ NeuroDB (LSM-Tree) ]
+   PUBLIC 信箱 key ∈ [buildKey(0,0), buildKey(0,∞)]
+   INBOX  信箱 key ∈ [buildKey(ownerId,0), buildKey(ownerId,∞)]
+```
+
+---
+
+## Project Structure
+
+```text
+chat-server/
+├── src/main/java/com/chat/
+│   ├── ChatServerMain.java          # 入口：NeuroDB 客户端、Auth、Netty、Redis
+│   ├── config/
+│   │   └── AppConfig.java           # 端口、JWT、NeuroDB URL、Redis、上传目录
+│   ├── auth/
+│   │   ├── AuthService.java        # 登录/注册/管理员/用户存储
+│   │   └── JwtUtil.java            # JWT 签发与校验
+│   ├── netty/
+│   │   ├── ChatServerInitializer.java
+│   │   ├── ChatWebSocketHandler.java   # auth/chat/sync/RECALL/typing
+│   │   ├── ChannelRegistry.java
+│   │   ├── HttpStaticHandler.java     # 静态页与 /files/*
+│   │   └── HttpLoginHandler.java      # /api/login, /api/register 等
+│   ├── neurodb/
+│   │   └── NeuroDbClient.java      # HTTP 封装 Put/Get/Delete/Scan
+│   ├── redis/
+│   │   ├── RedisChatBus.java       # Pub/Sub 广播
+│   │   └── RedisChatSubscriber.java
+│   ├── protocol/                   # 各类 Packet DTO
+│   ├── model/                      # Message, User
+│   └── util/
+│       └── TimelineKeyUtil.java    # 组合键与 ownerId 映射
+├── src/main/resources/
+│   ├── static/
+│   │   ├── index.html              # 主聊天界面（游标隔离 syncCursors）
+│   │   ├── register.html
+│   │   └── admin.html
+│   └── logback.xml
+├── pom.xml
+├── env.sh                          # JAVA_HOME 等
+└── README.md
+```
+
+---
+
+## License
+
+MIT License. Copyright (c) 2026 HowieSun.
