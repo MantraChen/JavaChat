@@ -19,7 +19,10 @@
     .btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 4px 8px; }
     .btn.approve { color: #0a0; }
     .btn.reject { color: #c00; }
+    .btn.mute { color: #f57c00; }
+    .btn.ban { color: #c00; }
     .btn:hover { text-decoration: underline; }
+    .card { margin-bottom: 24px; }
     .error { color: #c00; margin-top: 12px; }
     .login-prompt { padding: 24px; }
     .login-prompt input { padding: 8px 12px; margin-right: 8px; border: 1px solid #EAEAEA; border-radius: 6px; }
@@ -29,6 +32,7 @@
 <body>
   <aside class="sidebar">
     <div class="item active" data-page="users">用户审核</div>
+    <div class="item" data-page="all-users">所有用户</div>
     <div class="item" data-page="status">系统状态</div>
   </aside>
   <main class="main">
@@ -46,6 +50,16 @@
           <tbody id="user-tbody"></tbody>
         </table>
         <div class="error" id="api-err"></div>
+      </div>
+    </div>
+    <div id="all-users-page" style="display:none;">
+      <h2>所有用户（禁言 / 封禁）</h2>
+      <div id="all-users-content" style="display:none;">
+        <table class="list" id="all-users-table">
+          <thead><tr><th>用户名</th><th>UserId</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="all-users-tbody"></tbody>
+        </table>
+        <div class="error" id="all-users-err"></div>
       </div>
     </div>
     <div id="status-page" style="display:none;">
@@ -72,7 +86,7 @@
         try {
           const res = await fetch(API_BASE + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pwd }) });
           const json = await res.json();
-          if (json.token) { token = json.token; loginPrompt.style.display = 'none'; content.style.display = 'block'; loadUsers(); }
+          if (json.token) { token = json.token; loginPrompt.style.display = 'none'; content.style.display = 'block'; document.getElementById('all-users-content').style.display = 'block'; loadUsers(); loadAllUsers(); }
           else loginErr.textContent = json.error || '登录失败';
         } catch (e) {
           loginErr.textContent = '网络错误，请确认服务已启动';
@@ -103,12 +117,48 @@
         const res = await fetch('/api/admin/reject', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ userId: userId }) });
         if (res.ok) loadUsers(); else apiErr.textContent = '操作失败';
       }
+      const allUsersTbody = document.getElementById('all-users-tbody');
+      const allUsersErr = document.getElementById('all-users-err');
+      async function loadAllUsers() {
+        if (!token) return;
+        allUsersErr.textContent = '';
+        const res = await fetch('/api/admin/all-users', { headers: { 'Authorization': 'Bearer ' + token } });
+        const json = await res.json();
+        if (res.status === 403) { allUsersErr.textContent = '需要管理员权限'; return; }
+        if (!res.ok) { allUsersErr.textContent = json.error || '加载失败'; return; }
+        const users = json.users || [];
+        allUsersTbody.innerHTML = users.map(function(u) {
+          var status = u.status || '';
+          var muteBtn = status === 'MUTED' ? '<button class="btn unmute" data-userid="' + u.userId + '">解禁</button>' : '<button class="btn mute" data-userid="' + u.userId + '">禁言</button>';
+          var banBtn = status === 'BANNED' ? '<button class="btn unban" data-userid="' + u.userId + '">解封</button>' : '<button class="btn ban" data-userid="' + u.userId + '">封禁</button>';
+          return '<tr><td>' + (u.username || '') + '</td><td>' + u.userId + '</td><td>' + status + '</td><td>' + muteBtn + ' ' + banBtn + '</td></tr>';
+        }).join('');
+        allUsersTbody.querySelectorAll('.btn.mute').forEach(function(btn) {
+          btn.addEventListener('click', function() { adminAction(parseInt(btn.dataset.userid, 10), 'MUTE'); });
+        });
+        allUsersTbody.querySelectorAll('.btn.unmute').forEach(function(btn) {
+          btn.addEventListener('click', function() { adminAction(parseInt(btn.dataset.userid, 10), 'UNMUTE'); });
+        });
+        allUsersTbody.querySelectorAll('.btn.ban').forEach(function(btn) {
+          btn.addEventListener('click', function() { adminAction(parseInt(btn.dataset.userid, 10), 'BAN'); });
+        });
+        allUsersTbody.querySelectorAll('.btn.unban').forEach(function(btn) {
+          btn.addEventListener('click', function() { adminAction(parseInt(btn.dataset.userid, 10), 'UNBAN'); });
+        });
+      }
+      async function adminAction(userId, action) {
+        const res = await fetch('/api/admin/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ userId: userId, action: action }) });
+        if (res.ok) loadAllUsers(); else allUsersErr.textContent = '操作失败';
+      }
       document.querySelectorAll('.sidebar .item').forEach(function(el) {
         el.addEventListener('click', function() {
           document.querySelectorAll('.sidebar .item').forEach(function(x) { x.classList.remove('active'); });
           el.classList.add('active');
-          document.getElementById('users-page').style.display = el.dataset.page === 'users' ? 'block' : 'none';
-          document.getElementById('status-page').style.display = el.dataset.page === 'status' ? 'block' : 'none';
+          var page = el.dataset.page;
+          document.getElementById('users-page').style.display = page === 'users' ? 'block' : 'none';
+          document.getElementById('all-users-page').style.display = page === 'all-users' ? 'block' : 'none';
+          document.getElementById('status-page').style.display = page === 'status' ? 'block' : 'none';
+          if (page === 'all-users') loadAllUsers();
         });
       });
     })();

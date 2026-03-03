@@ -13,9 +13,13 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.CharsetUtil;
 
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * 处理 GET 静态页：/、/index.html、/register.html、/admin.html。
+ * 开发时优先从磁盘读取，便于改完刷新即生效，无需重启服务。
  */
 public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
@@ -23,12 +27,39 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
     private static final byte[] REGISTER_HTML = loadResource("static/register.html");
     private static final byte[] ADMIN_HTML = loadResource("static/admin.html");
 
+    /** 开发时从磁盘读静态文件（cwd 为 chat-server 或项目根） */
+    private static byte[] loadFromDisk(String relativePath) {
+        for (String base : new String[] { "src/main/resources", "chat-server/src/main/resources" }) {
+            Path p = Paths.get(base, relativePath).toAbsolutePath().normalize();
+            try {
+                if (Files.isRegularFile(p)) return Files.readAllBytes(p);
+            } catch (Exception ignored) { }
+        }
+        return null;
+    }
+
     private static byte[] loadResource(String name) {
+        byte[] fromDisk = loadFromDisk(name);
+        if (fromDisk != null && fromDisk.length > 0) return fromDisk;
         try (InputStream in = HttpStaticHandler.class.getClassLoader().getResourceAsStream(name)) {
             return in != null ? in.readAllBytes() : new byte[0];
         } catch (Exception e) {
             return new byte[0];
         }
+    }
+
+    /** 按请求从磁盘或缓存取内容，便于开发时改 HTML 后刷新即生效 */
+    private static byte[] getContent(String path) {
+        String name = path.equals("/") || path.equals("/index.html") ? "static/index.html"
+                : path.equals("/register.html") ? "static/register.html"
+                : path.equals("/admin.html") ? "static/admin.html" : null;
+        if (name == null) return null;
+        byte[] fromDisk = loadFromDisk(name);
+        if (fromDisk != null && fromDisk.length > 0) return fromDisk;
+        if ("/".equals(path) || "/index.html".equals(path)) return INDEX_HTML;
+        if ("/register.html".equals(path)) return REGISTER_HTML;
+        if ("/admin.html".equals(path)) return ADMIN_HTML;
+        return null;
     }
 
     @Override
@@ -50,14 +81,8 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
         if (uri == null) uri = "";
         int q = uri.indexOf('?');
         String path = q >= 0 ? uri.substring(0, q) : uri;
-        byte[] content;
-        if ("/".equals(path) || "/index.html".equals(path)) {
-            content = INDEX_HTML;
-        } else if ("/register.html".equals(path)) {
-            content = REGISTER_HTML;
-        } else if ("/admin.html".equals(path)) {
-            content = ADMIN_HTML;
-        } else {
+        byte[] content = getContent(path);
+        if (content == null) {
             ctx.fireChannelRead(req.retain());
             return;
         }

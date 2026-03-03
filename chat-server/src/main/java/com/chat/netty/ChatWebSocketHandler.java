@@ -3,6 +3,7 @@ package com.chat.netty;
 import com.chat.auth.AuthService;
 import com.chat.auth.JwtUtil;
 import com.chat.model.Message;
+import com.chat.model.User;
 import com.chat.neurodb.NeuroDbClient;
 import com.chat.protocol.AckPacket;
 import com.chat.protocol.AuthFailPacket;
@@ -20,6 +21,7 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
@@ -158,6 +160,23 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     }
 
     private void handleChat(ChannelHandlerContext ctx, Map<String, Object> map) {
+        User sender = null;
+        try {
+            sender = authService.getUserByUsernameOrId(currentUserId);
+        } catch (IOException e) {
+            log.warn("getUserByUsernameOrId failed: {}", e.getMessage());
+        }
+        if (sender != null) {
+            if ("MUTED".equals(sender.getStatus())) {
+                sendError(ctx, "您已被管理员禁言，无法发送消息");
+                return;
+            }
+            if ("BANNED".equals(sender.getStatus())) {
+                sendError(ctx, "账号已被封禁");
+                ctx.close();
+                return;
+            }
+        }
         String content = (String) map.get("content");
         if (content == null) content = "";
         long ts = System.currentTimeMillis();
@@ -418,6 +437,18 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             handleOnline(ctx, req);
             return;
         }
+        if ("/api/users".equals(path)) {
+            handleGetAllUsers(ctx, req);
+            return;
+        }
+        if ("/api/admin/action".equals(path)) {
+            handleAdminAction(ctx, req);
+            return;
+        }
+        if ("/api/admin/all-users".equals(path)) {
+            handleAdminAllUsers(ctx, req);
+            return;
+        }
         if ("/api/upload".equals(path)) {
             handleUpload(ctx, req);
             return;
@@ -429,8 +460,117 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         ctx.close();
     }
 
+    private void handleGetAllUsers(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.GET) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        req.release();
+        if (token == null || jwtUtil.parseUserId(token) == null) {
+            sendHttpJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
+        try {
+            List<User> users = authService.getAllApprovedUsers();
+            List<Map<String, Object>> res = new ArrayList<>();
+            for (User u : users) {
+                res.add(Map.of("userId", u.getUserId(), "username", u.getUsername() != null ? u.getUsername() : ""));
+            }
+            sendHttpJson(ctx, HttpResponseStatus.OK, Map.of("users", res));
+        } catch (IOException e) {
+            log.warn("getAllApprovedUsers failed: {}", e.getMessage());
+            sendHttpJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+        }
+    }
+
+    private void handleAdminAction(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.POST) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        if (token == null || !"ADMIN".equals(jwtUtil.parseRole(token))) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
+            return;
+        }
+        String body = req.content().toString(CharsetUtil.UTF_8);
+        req.release();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = GSON.fromJson(body, Map.class);
+        if (map == null || !map.containsKey("userId") || !map.containsKey("action")) {
+            sendHttpJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "userId and action required"));
+            return;
+        }
+        int targetUserId = ((Number) map.get("userId")).intValue();
+        String action = (String) map.get("action");
+        try {
+            switch (action) {
+                case "MUTE":
+                    authService.changeUserStatus(targetUserId, "MUTED");
+                    break;
+                case "UNMUTE":
+                    authService.changeUserStatus(targetUserId, "APPROVED");
+                    break;
+                case "BAN":
+                    authService.changeUserStatus(targetUserId, "BANNED");
+                    User u = authService.getUserByUserId(targetUserId);
+                    if (u != null) {
+                        String username = u.getUsername();
+                        if (username != null) {
+                            Channel ch = registry.get(username);
+                            if (ch != null && ch.isActive()) ch.close();
+                        }
+                    }
+                    break;
+                case "UNBAN":
+                    authService.changeUserStatus(targetUserId, "APPROVED");
+                    break;
+                default:
+                    sendHttpJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid action"));
+                    return;
+            }
+            sendHttpJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
+        } catch (IOException e) {
+            log.warn("Admin action failed: {}", e.getMessage());
+            sendHttpJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+        }
+    }
+
+    private void handleAdminAllUsers(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.GET) {
+            req.release();
+            sendHttpJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        req.release();
+        if (token == null || !"ADMIN".equals(jwtUtil.parseRole(token))) {
+            sendHttpJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
+            return;
+        }
+        try {
+            List<User> users = authService.getAllUsers();
+            List<Map<String, Object>> res = new ArrayList<>();
+            for (User u : users) {
+                res.add(Map.<String, Object>of(
+                        "userId", u.getUserId(),
+                        "username", u.getUsername() != null ? u.getUsername() : "",
+                        "status", u.getStatus() != null ? u.getStatus() : ""
+                ));
+            }
+            sendHttpJson(ctx, HttpResponseStatus.OK, Map.of("users", res));
+        } catch (IOException e) {
+            log.warn("getAllUsers failed: {}", e.getMessage());
+            sendHttpJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+        }
+    }
+
     private void handleOnline(ChannelHandlerContext ctx, FullHttpRequest req) {
-        if (req.method() != io.netty.handler.codec.http.HttpMethod.GET) {
+        if (req.method() != HttpMethod.GET) {
             req.release();
             sendHttpJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
             return;

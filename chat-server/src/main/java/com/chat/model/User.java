@@ -18,7 +18,7 @@ public class User {
     @SerializedName("role")
     private String role = "USER";  // USER, ADMIN
     @SerializedName("status")
-    private String status = "PENDING"; // PENDING, APPROVED, REJECTED
+    private String status = "PENDING"; // PENDING, APPROVED, REJECTED, MUTED, BANNED
 
     public User() {}
 
