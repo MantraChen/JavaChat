@@ -12,7 +12,7 @@ import com.chat.protocol.ErrorPacket;
 import com.chat.protocol.RecallPacket;
 import com.chat.protocol.SyncResultPacket;
 import com.chat.redis.RedisChatBus;
-import com.chat.util.SnowflakeId;
+import com.chat.util.TimelineKeyUtil;
 import com.google.gson.Gson;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -60,7 +60,6 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     private final ChannelRegistry registry;
     private final RedisChatBus redisBus;
     private final String uploadDir;
-    private final SnowflakeId snowflakeId = new SnowflakeId();
 
     /** 当前连接对应的 userId，未认证为 null */
     private String currentUserId;
@@ -162,8 +161,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         String content = (String) map.get("content");
         if (content == null) content = "";
         long ts = System.currentTimeMillis();
-        long messageId = snowflakeId.nextId();
-        Message msg = new Message(messageId, currentUserId, content, ts);
+        Message msg = new Message(0L, currentUserId, content, ts);
         Object rtId = map.get("replyToId");
         if (rtId != null) {
             long replyToIdLong;
@@ -186,16 +184,36 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         msg.setReceiverId(receiverId);
         String msgType = (String) map.get("msgType");
         if (msgType != null && !msgType.isEmpty()) msg.setMsgType(msgType);
-        String value = GSON.toJson(msg);
+
+        int senderOwnerId = TimelineKeyUtil.userIdToOwnerId(currentUserId);
+        int receiverOwnerId = TimelineKeyUtil.userIdToOwnerId(receiverId);
+        boolean isPublic = (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId));
+        String value;
         try {
-            neuroDb.put(messageId, value);
+            if (isPublic) {
+                long publicKey = TimelineKeyUtil.buildKey(0, ts);
+                msg.setMessageId(publicKey);
+                value = GSON.toJson(msg);
+                neuroDb.put(publicKey, value);
+            } else {
+                long senderKey = TimelineKeyUtil.buildKey(senderOwnerId, ts);
+                long receiverKey = TimelineKeyUtil.buildKey(receiverOwnerId, ts);
+                msg.setMessageId(senderKey);
+                value = GSON.toJson(msg);
+                neuroDb.put(senderKey, value);
+                if (senderOwnerId != receiverOwnerId) {
+                    msg.setMessageId(receiverKey);
+                    neuroDb.put(receiverKey, GSON.toJson(msg));
+                }
+            }
         } catch (IOException e) {
             log.error("NeuroDB put failed: {}", e.getMessage());
             sendError(ctx, "Storage failed");
             return;
         }
+
         ChatMessagePacket packet = new ChatMessagePacket();
-        packet.messageId = String.valueOf(messageId);
+        packet.messageId = String.valueOf(msg.getMessageId());
         packet.senderId = currentUserId;
         packet.content = content;
         packet.timestamp = ts;
@@ -226,7 +244,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         if (localId != null && !localId.isEmpty()) {
             AckPacket ack = new AckPacket();
             ack.localId = localId;
-            ack.messageId = String.valueOf(messageId);
+            ack.messageId = String.valueOf(msg.getMessageId());
             ctx.writeAndFlush(new TextWebSocketFrame(GSON.toJson(ack)));
         }
     }
@@ -256,8 +274,19 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         if (age > RECALL_MAX_MS) { sendError(ctx, "Recall timeout (2 min)"); return; }
         msg.setContent("");
         msg.setRecalled(true);
+        String recalledJson = GSON.toJson(msg);
         try {
-            neuroDb.put(messageId, GSON.toJson(msg));
+            neuroDb.put(messageId, recalledJson);
+            String recvId = msg.getReceiverId();
+            if (recvId != null && !recvId.isEmpty() && !"PUBLIC".equalsIgnoreCase(recvId)) {
+                int senderOwnerId = TimelineKeyUtil.userIdToOwnerId(msg.getSenderId());
+                int receiverOwnerId = TimelineKeyUtil.userIdToOwnerId(recvId);
+                long ts = msg.getTimestamp();
+                long senderKey = TimelineKeyUtil.buildKey(senderOwnerId, ts);
+                long receiverKey = TimelineKeyUtil.buildKey(receiverOwnerId, ts);
+                if (messageId != senderKey) neuroDb.put(senderKey, recalledJson);
+                if (messageId != receiverKey) neuroDb.put(receiverKey, recalledJson);
+            }
         } catch (IOException e) {
             sendError(ctx, "Recall failed"); return;
         }
@@ -301,36 +330,27 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    /** 全量拉取历史时从 0 开始扫，非消息记录（如用户）会在解析时被过滤掉。 */
-    private static final long SYNC_ALL_START_KEY = 0L;
-
+    /** 按信箱前缀 O(log N) 精确扫描。target 为空或 PUBLIC 拉大厅(owner=0)，否则拉当前用户私信箱(写扩散已投递)。 */
     private void handleSync(ChannelHandlerContext ctx, Map<String, Object> map) {
+        String target = (String) map.get("target");
+        boolean isPublicSync = (target == null || target.isEmpty() || "PUBLIC".equalsIgnoreCase(target));
+        int targetOwnerId = isPublicSync ? 0 : TimelineKeyUtil.userIdToOwnerId(currentUserId);
+
         Object tsObj = map.get("lastTimestamp");
         long lastTs = tsObj instanceof Number ? ((Number) tsObj).longValue() : 0L;
-        long startKey = lastTs <= 0 ? SYNC_ALL_START_KEY : SnowflakeId.timestampToStartKey(lastTs);
-        long endKey = Long.MAX_VALUE;
+        long startKey = TimelineKeyUtil.buildKey(targetOwnerId, lastTs <= 0 ? 0 : lastTs + 1);
+        long endKey = TimelineKeyUtil.buildKey(targetOwnerId, Long.MAX_VALUE);
+
         List<ChatMessagePacket> list = new ArrayList<>();
         try {
             for (NeuroDbClient.ScanRecord rec : neuroDb.scan(startKey, endKey)) {
-                if (rec.value == null || rec.value.isBlank()) continue;
-                String trimmed = rec.value.trim();
-                if (!trimmed.startsWith("{")) continue;
+                if (rec.value == null || rec.value.isBlank() || !rec.value.trim().startsWith("{")) continue;
                 try {
                     Message m = GSON.fromJson(rec.value, Message.class);
-                    if (m == null) continue;
-                    String senderId = m.getSenderId();
-                    if (senderId == null || senderId.isEmpty()) continue;
-                    if (lastTs > 0 && m.getTimestamp() <= lastTs) continue;
-                    String recvId = m.getReceiverId();
-                    boolean isPublic = (recvId == null || recvId.isEmpty() || "PUBLIC".equalsIgnoreCase(recvId));
-                    boolean isSender = currentUserId.equals(senderId);
-                    boolean isReceiver = currentUserId.equals(recvId);
-                    if (!isPublic && !isSender && !isReceiver) continue;
-                    long msgId = m.getMessageId();
-                    if (msgId == 0) msgId = rec.key;
+                    if (m == null || m.getSenderId() == null || m.getSenderId().isEmpty()) continue;
                     ChatMessagePacket p = new ChatMessagePacket();
-                    p.messageId = String.valueOf(msgId);
-                    p.senderId = senderId;
+                    p.messageId = String.valueOf(rec.key);
+                    p.senderId = m.getSenderId();
                     p.content = m.isRecalled() ? "" : (m.getContent() != null ? m.getContent() : "");
                     p.timestamp = m.getTimestamp();
                     p.isRecalled = m.isRecalled();
@@ -338,11 +358,11 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
                     p.replyToUser = m.getReplyToUser();
                     p.replyToContent = m.getReplyToContent();
                     p.mentions = m.getMentions();
-                    p.receiverId = recvId;
+                    p.receiverId = m.getReceiverId();
                     p.msgType = m.getMsgType();
                     list.add(p);
                 } catch (Exception e) {
-                    // 非 Message JSON（如 User、数组等）跳过
+                    // 忽略非 Message 结构
                 }
             }
         } catch (IOException e) {
