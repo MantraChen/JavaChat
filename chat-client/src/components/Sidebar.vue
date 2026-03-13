@@ -433,12 +433,40 @@ onUnmounted(() => {
   background: var(--bg-sidebar, #1a1a1a);
 }
 
+:root[data-theme='dark'] .item-name {
+  color: var(--text-primary, #e0e0e0);
+}
+
+:root[data-theme='dark'] .item-preview {
+  color: var(--text-secondary, #aaa);
+}
+
+:root[data-theme='dark'] .my-name {
+  color: var(--text-primary, #e0e0e0);
+}
+
+:root[data-theme='dark'] .my-status {
+  color: var(--text-secondary, #aaa);
+}
+
+:root[data-theme='dark'] .chevron {
+  color: var(--text-secondary, #aaa);
+}
+
 :root[data-theme='dark'] .user-menu {
   background: var(--bg-card, #2d2d2d);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
+:root[data-theme='dark'] .menu-item {
+  color: var(--text-primary, #e0e0e0);
+}
+
 :root[data-theme='dark'] .menu-item:hover {
   background: var(--hover-bg, #3d3d3d);
+}
+
+:root[data-theme='dark'] .menu-item.danger {
+  color: #ef5350;
 }
 </style>

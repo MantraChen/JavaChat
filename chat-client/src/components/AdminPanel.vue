@@ -1,112 +1,245 @@
 <template>
   <Teleport to="body">
     <Transition name="modal-fade">
-      <div v-if="visible" class="modal-overlay" @click.self="close">
-        <div class="modal-container">
-          <div class="modal-header">
-            <h2><Shield :size="20" /> 管理后台</h2>
-            <button class="close-btn" @click="close">
-              <X :size="20" />
-            </button>
-          </div>
-
-          <div class="modal-tabs">
-            <button
-              class="tab-btn"
-              :class="{ active: activeTab === 'pending' }"
-              @click="activeTab = 'pending'"  
-            >
-              待审批 <span class="badge" v-if="pendingUsers.length">{{ pendingUsers.length }}</span>
-            </button>
-            <button
-              class="tab-btn"
-              :class="{ active: activeTab === 'all' }"
-              @click="activeTab = 'all'"
-            >
-              所有用户
-            </button>
-          </div>
-
-          <div class="modal-body">
-            <div v-if="loading" class="loading-state">
-              <Loader2 :size="24" class="spin" />
-              <span>加载中...</span>
+      <div v-if="visible" class="admin-overlay" @click.self="close">
+        <div class="admin-container">
+          <!-- Sidebar -->
+          <aside class="admin-sidebar">
+            <div class="sidebar-header">
+              <Shield :size="24" />
+              <span>管理后台</span>
             </div>
+            <nav class="sidebar-nav">
+              <button
+                v-for="item in navItems"
+                :key="item.id"
+                class="nav-item"
+                :class="{ active: activeSection === item.id }"
+                @click="activeSection = item.id"
+              >
+                <component :is="item.icon" :size="18" />
+                <span>{{ item.label }}</span>
+                <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
+              </button>
+            </nav>
+            <div class="sidebar-footer">
+              <button class="close-link" @click="close">
+                <ArrowLeft :size="16" />
+                返回聊天
+              </button>
+            </div>
+          </aside>
 
-            <template v-else-if="activeTab === 'pending'">
-              <div v-if="pendingUsers.length === 0" class="empty-state">
+          <!-- Main Content -->
+          <main class="admin-main">
+            <!-- Dashboard -->
+            <section v-if="activeSection === 'dashboard'" class="section">
+              <h2 class="section-title">数据概览</h2>
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <div class="stat-icon online"><Wifi :size="24" /></div>
+                  <div class="stat-info">
+                    <div class="stat-value">{{ stats.online }}</div>
+                    <div class="stat-label">在线用户</div>
+                  </div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-icon pending"><Clock :size="24" /></div>
+                  <div class="stat-info">
+                    <div class="stat-value">{{ stats.pending }}</div>
+                    <div class="stat-label">待审批</div>
+                  </div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-icon total"><Users :size="24" /></div>
+                  <div class="stat-info">
+                    <div class="stat-value">{{ stats.total }}</div>
+                    <div class="stat-label">总用户数</div>
+                  </div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-icon banned"><Ban :size="24" /></div>
+                  <div class="stat-info">
+                    <div class="stat-value">{{ stats.banned }}</div>
+                    <div class="stat-label">已封禁</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Broadcast -->
+              <div class="broadcast-section">
+                <h3 class="subsection-title">
+                  <Megaphone :size="18" />
+                  系统广播
+                </h3>
+                <div class="broadcast-form">
+                  <input
+                    v-model="broadcastMessage"
+                    type="text"
+                    class="broadcast-input"
+                    placeholder="输入系统公告内容..."
+                    @keydown.enter="sendBroadcast"
+                  />
+                  <button
+                    class="btn btn-primary"
+                    :disabled="!broadcastMessage.trim() || broadcasting"
+                    @click="sendBroadcast"
+                  >
+                    <Send :size="16" />
+                    发送
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Pending Approvals -->
+            <section v-else-if="activeSection === 'pending'" class="section">
+              <div class="section-header">
+                <h2 class="section-title">注册审批</h2>
+                <div class="batch-actions" v-if="pendingUsers.length > 0">
+                  <button class="btn btn-outline" @click="approveAll" :disabled="actionLoading">
+                    <CheckCheck :size="16" /> 全部通过
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="loading" class="loading-state">
+                <Loader2 :size="24" class="spin" />
+                <span>加载中...</span>
+              </div>
+              <div v-else-if="pendingUsers.length === 0" class="empty-state">
                 <CheckCircle :size="48" />
                 <p>暂无待审批用户</p>
               </div>
-              <div v-else class="user-list">
-                <div v-for="u in pendingUsers" :key="u.userId" class="user-card">
-                  <div class="user-avatar">{{ (u.username || 'U').charAt(0).toUpperCase() }}</div>
-                  <div class="user-info">
-                    <div class="user-name">{{ u.username || '用户' + u.userId }}</div>
-                    <div class="user-id">ID: {{ u.userId }}</div>
+              <div v-else class="user-table">
+                <div v-for="u in pendingUsers" :key="u.userId" class="table-row">
+                  <div class="user-cell">
+                    <div class="user-avatar">{{ (u.username || 'U').charAt(0).toUpperCase() }}</div>
+                    <div class="user-info">
+                      <div class="user-name">{{ u.username || '用户' + u.userId }}</div>
+                      <div class="user-id">ID: {{ u.userId }}</div>
+                    </div>
                   </div>
-                  <div class="user-actions">
-                    <button class="btn btn-success" @click="approveUser(u.userId)" :disabled="actionLoading">
-                      <Check :size="16" /> 通过
+                  <div class="action-cell">
+                    <button class="btn btn-success btn-sm" @click="approveUser(u.userId)" :disabled="actionLoading">
+                      <Check :size="14" /> 通过
                     </button>
-                    <button class="btn btn-danger" @click="rejectUser(u.userId)" :disabled="actionLoading">
-                      <X :size="16" /> 拒绝
+                    <button class="btn btn-danger btn-sm" @click="rejectUser(u.userId)" :disabled="actionLoading">
+                      <X :size="14" /> 拒绝
                     </button>
                   </div>
                 </div>
               </div>
-            </template>
+            </section>
 
-            <template v-else>
-              <div v-if="allUsers.length === 0" class="empty-state">
-                <Users :size="48" />
-                <p>暂无用户</p>
+            <!-- User Management -->
+            <section v-else-if="activeSection === 'users'" class="section">
+              <div class="section-header">
+                <h2 class="section-title">用户管理</h2>
+                <div class="search-box">
+                  <Search :size="16" />
+                  <input
+                    v-model="searchKeyword"
+                    type="text"
+                    placeholder="搜索用户名..."
+                  />
+                </div>
               </div>
-              <div v-else class="user-list">
-                <div v-for="u in allUsers" :key="u.userId" class="user-card">
-                  <div class="user-avatar">{{ (u.username || 'U').charAt(0).toUpperCase() }}</div>
-                  <div class="user-info">
-                    <div class="user-name">{{ u.username || '用户' + u.userId }}</div>
-                    <div class="user-meta">
-                      <span class="user-id">ID: {{ u.userId }}</span>
-                      <span class="user-status" :class="statusClass(u.status)">{{ statusText(u.status) }}</span>
+
+              <div v-if="loading" class="loading-state">
+                <Loader2 :size="24" class="spin" />
+              </div>
+              <div v-else-if="filteredUsers.length === 0" class="empty-state">
+                <Users :size="48" />
+                <p>{{ searchKeyword ? '未找到匹配用户' : '暂无用户' }}</p>
+              </div>
+              <div v-else class="user-table">
+                <div class="table-header">
+                  <span class="col-user">用户</span>
+                  <span class="col-status">状态</span>
+                  <span class="col-actions">操作</span>
+                </div>
+                <div v-for="u in filteredUsers" :key="u.userId" class="table-row">
+                  <div class="user-cell">
+                    <div class="user-avatar">{{ (u.username || 'U').charAt(0).toUpperCase() }}</div>
+                    <div class="user-info">
+                      <div class="user-name">{{ u.username || '用户' + u.userId }}</div>
+                      <div class="user-id">ID: {{ u.userId }}</div>
                     </div>
                   </div>
-                  <div class="user-actions">
+                  <div class="status-cell">
+                    <span class="status-tag" :class="statusClass(u.status)">
+                      {{ statusText(u.status) }}
+                    </span>
+                  </div>
+                  <div class="action-cell">
                     <template v-if="u.status === 'APPROVED'">
-                      <button class="btn btn-warning" @click="muteUser(u.userId)" :disabled="actionLoading">
-                        <VolumeX :size="16" /> 禁言
-                      </button>
-                      <button class="btn btn-danger" @click="banUser(u.userId)" :disabled="actionLoading">
-                        <Ban :size="16" /> 封禁
-                      </button>
+                      <label class="toggle-label">
+                        <input type="checkbox" class="toggle-input" :checked="false" @change="muteUser(u.userId)" :disabled="actionLoading" />
+                        <span class="toggle-slider warning"></span>
+                        <span class="toggle-text">禁言</span>
+                      </label>
+                      <label class="toggle-label">
+                        <input type="checkbox" class="toggle-input" :checked="false" @change="banUser(u.userId)" :disabled="actionLoading" />
+                        <span class="toggle-slider danger"></span>
+                        <span class="toggle-text">封禁</span>
+                      </label>
                     </template>
                     <template v-else-if="u.status === 'MUTED'">
-                      <button class="btn btn-success" @click="unmuteUser(u.userId)" :disabled="actionLoading">
-                        <Volume2 :size="16" /> 解除禁言
+                      <button class="btn btn-success btn-sm" @click="unmuteUser(u.userId)" :disabled="actionLoading">
+                        <Volume2 :size="14" /> 解除禁言
                       </button>
                     </template>
                     <template v-else-if="u.status === 'BANNED'">
-                      <button class="btn btn-success" @click="unbanUser(u.userId)" :disabled="actionLoading">
-                        <UserCheck :size="16" /> 解除封禁
+                      <button class="btn btn-success btn-sm" @click="unbanUser(u.userId)" :disabled="actionLoading">
+                        <UserCheck :size="14" /> 解除封禁
                       </button>
                     </template>
                   </div>
                 </div>
               </div>
-            </template>
-          </div>
+            </section>
+
+            <!-- Message Moderation -->
+            <section v-else-if="activeSection === 'messages'" class="section">
+              <h2 class="section-title">消息管控</h2>
+              <div class="recall-form">
+                <p class="form-hint">输入消息 ID 可强制撤回任意消息（无视时间限制）</p>
+                <div class="recall-row">
+                  <input
+                    v-model="recallMessageId"
+                    type="text"
+                    class="form-input"
+                    placeholder="消息 ID"
+                  />
+                  <button
+                    class="btn btn-danger"
+                    :disabled="!recallMessageId.trim() || recalling"
+                    @click="forceRecall"
+                  >
+                    <Trash2 :size="16" />
+                    强制撤回
+                  </button>
+                </div>
+              </div>
+            </section>
+          </main>
         </div>
       </div>
     </Transition>
   </Teleport>
+
+  <Toast ref="toastRef" />
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch, markRaw } from 'vue';
 import { useAuthStore } from '../stores/auth';
+import Toast from './Toast.vue';
 import {
-  Shield, X, Loader2, CheckCircle, Users, Check, VolumeX, Volume2, Ban, UserCheck
+  Shield, ArrowLeft, Wifi, Clock, Users, Ban, Megaphone, Send,
+  CheckCheck, Loader2, CheckCircle, Check, X, Search, Volume2,
+  UserCheck, Trash2, LayoutDashboard, UserCog, MessageSquare, VolumeX
 } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -116,21 +249,56 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const auth = useAuthStore();
-const activeTab = ref('pending');
+const toastRef = ref(null);
+const activeSection = ref('dashboard');
 const loading = ref(false);
 const actionLoading = ref(false);
 const pendingUsers = ref([]);
 const allUsers = ref([]);
+const searchKeyword = ref('');
+const broadcastMessage = ref('');
+const broadcasting = ref(false);
+const recallMessageId = ref('');
+const recalling = ref(false);
+
+const stats = computed(() => ({
+  online: onlineCount.value,
+  pending: pendingUsers.value.length,
+  total: allUsers.value.length,
+  banned: allUsers.value.filter((u) => u.status === 'BANNED').length,
+}));
+
+const onlineCount = ref(0);
+
+const navItems = computed(() => [
+  { id: 'dashboard', label: '数据大盘', icon: markRaw(LayoutDashboard) },
+  { id: 'pending', label: '注册审批', icon: markRaw(Clock), badge: pendingUsers.value.length || null },
+  { id: 'users', label: '用户管理', icon: markRaw(UserCog) },
+  { id: 'messages', label: '消息管控', icon: markRaw(MessageSquare) },
+]);
+
+const filteredUsers = computed(() => {
+  if (!searchKeyword.value.trim()) return allUsers.value;
+  const kw = searchKeyword.value.toLowerCase();
+  return allUsers.value.filter((u) =>
+    (u.username || '').toLowerCase().includes(kw) ||
+    String(u.userId).includes(kw)
+  );
+});
 
 watch(() => props.visible, (v) => {
   if (v) {
-    loadPendingUsers();
-    loadAllUsers();
+    loadAll();
   }
 });
 
-async function loadPendingUsers() {
+async function loadAll() {
   loading.value = true;
+  await Promise.all([loadPendingUsers(), loadAllUsers(), loadOnlineCount()]);
+  loading.value = false;
+}
+
+async function loadPendingUsers() {
   try {
     const res = await fetch('/api/admin/users', {
       headers: { Authorization: 'Bearer ' + auth.token },
@@ -139,8 +307,6 @@ async function loadPendingUsers() {
     pendingUsers.value = data.users || [];
   } catch {
     pendingUsers.value = [];
-  } finally {
-    loading.value = false;
   }
 }
 
@@ -156,10 +322,22 @@ async function loadAllUsers() {
   }
 }
 
+async function loadOnlineCount() {
+  try {
+    const res = await fetch('/api/online', {
+      headers: { Authorization: 'Bearer ' + auth.token },
+    });
+    const data = await res.json();
+    onlineCount.value = (data.users || []).length;
+  } catch {
+    onlineCount.value = 0;
+  }
+}
+
 async function adminAction(userId, action) {
   actionLoading.value = true;
   try {
-    await fetch('/api/admin/action', {
+    const res = await fetch('/api/admin/action', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + auth.token,
@@ -167,8 +345,14 @@ async function adminAction(userId, action) {
       },
       body: JSON.stringify({ userId, action }),
     });
-    await loadAllUsers();
-    await loadPendingUsers();
+    if (res.ok) {
+      showToast('操作成功', 'success');
+      await loadAllUsers();
+    } else {
+      showToast('操作失败', 'error');
+    }
+  } catch {
+    showToast('网络错误', 'error');
   } finally {
     actionLoading.value = false;
   }
@@ -177,7 +361,7 @@ async function adminAction(userId, action) {
 async function approveUser(userId) {
   actionLoading.value = true;
   try {
-    await fetch('/api/admin/approve', {
+    const res = await fetch('/api/admin/approve', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + auth.token,
@@ -185,8 +369,12 @@ async function approveUser(userId) {
       },
       body: JSON.stringify({ userId }),
     });
-    await loadPendingUsers();
-    await loadAllUsers();
+    if (res.ok) {
+      showToast('已通过审批', 'success');
+      await Promise.all([loadPendingUsers(), loadAllUsers()]);
+    } else {
+      showToast('操作失败', 'error');
+    }
   } finally {
     actionLoading.value = false;
   }
@@ -195,7 +383,7 @@ async function approveUser(userId) {
 async function rejectUser(userId) {
   actionLoading.value = true;
   try {
-    await fetch('/api/admin/reject', {
+    const res = await fetch('/api/admin/reject', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + auth.token,
@@ -203,26 +391,76 @@ async function rejectUser(userId) {
       },
       body: JSON.stringify({ userId }),
     });
-    await loadPendingUsers();
+    if (res.ok) {
+      showToast('已拒绝', 'success');
+      await loadPendingUsers();
+    } else {
+      showToast('操作失败', 'error');
+    }
   } finally {
     actionLoading.value = false;
   }
 }
 
-function muteUser(userId) {
-  adminAction(userId, 'MUTE');
+async function approveAll() {
+  for (const u of pendingUsers.value) {
+    await approveUser(u.userId);
+  }
 }
 
-function unmuteUser(userId) {
-  adminAction(userId, 'UNMUTE');
+function muteUser(userId) { adminAction(userId, 'MUTE'); }
+function unmuteUser(userId) { adminAction(userId, 'UNMUTE'); }
+function banUser(userId) { adminAction(userId, 'BAN'); }
+function unbanUser(userId) { adminAction(userId, 'UNBAN'); }
+
+async function sendBroadcast() {
+  if (!broadcastMessage.value.trim()) return;
+  broadcasting.value = true;
+  try {
+    const res = await fetch('/api/admin/broadcast', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + auth.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: broadcastMessage.value }),
+    });
+    if (res.ok) {
+      showToast('广播已发送', 'success');
+      broadcastMessage.value = '';
+    } else {
+      showToast('发送失败', 'error');
+    }
+  } catch {
+    showToast('网络错误', 'error');
+  } finally {
+    broadcasting.value = false;
+  }
 }
 
-function banUser(userId) {
-  adminAction(userId, 'BAN');
-}
-
-function unbanUser(userId) {
-  adminAction(userId, 'UNBAN');
+async function forceRecall() {
+  if (!recallMessageId.value.trim()) return;
+  recalling.value = true;
+  try {
+    const res = await fetch('/api/admin/message/recall', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + auth.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ messageId: recallMessageId.value.trim() }),
+    });
+    if (res.ok) {
+      showToast('消息已撤回', 'success');
+      recallMessageId.value = '';
+    } else {
+      showToast('撤回失败', 'error');
+    }
+  } catch {
+    showToast('网络错误', 'error');
+  } finally {
+    recalling.value = false;
+  }
 }
 
 function statusClass(status) {
@@ -235,13 +473,12 @@ function statusClass(status) {
 }
 
 function statusText(status) {
-  const map = {
-    APPROVED: '正常',
-    MUTED: '已禁言',
-    BANNED: '已封禁',
-    PENDING: '待审批',
-  };
+  const map = { APPROVED: '正常', MUTED: '已禁言', BANNED: '已封禁', PENDING: '待审批' };
   return map[status] || status;
+}
+
+function showToast(message, type) {
+  toastRef.value?.show(message, type);
 }
 
 function close() {
@@ -250,10 +487,10 @@ function close() {
 </script>
 
 <style scoped>
-.modal-overlay {
+.admin-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -261,222 +498,438 @@ function close() {
   backdrop-filter: blur(4px);
 }
 
-.modal-container {
-  width: 90%;
-  max-width: 640px;
-  max-height: 80vh;
+.admin-container {
+  width: 95%;
+  max-width: 1100px;
+  height: 85vh;
   background: var(--bg-card, #fff);
   border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
   display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
-.modal-header {
+/* Sidebar */
+.admin-sidebar {
+  width: 220px;
+  background: var(--bg-sidebar, #f7f8fa);
+  border-right: 1px solid var(--border-color, #e8e8e8);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color, #e8e8e8);
+  flex-direction: column;
+  flex-shrink: 0;
 }
 
-.modal-header h2 {
+.sidebar-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0;
+  gap: 10px;
+  padding: 24px 20px;
   font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary, #333);
+  font-weight: 700;
+  color: var(--primary, #4a9eff);
 }
 
-.close-btn {
-  width: 36px;
-  height: 36px;
+.sidebar-nav {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary, #666);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.close-btn:hover {
-  background: var(--hover-bg, #f5f5f5);
-}
-
-.modal-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border-color, #e8e8e8);
-}
-
-.tab-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 10px;
+  padding: 12px 16px;
   font-size: 14px;
   font-weight: 500;
   color: var(--text-secondary, #666);
   background: transparent;
-  border: 1px solid var(--border-color, #e8e8e8);
-  border-radius: 8px;
+  border: none;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.15s;
+  text-align: left;
 }
 
-.tab-btn:hover {
-  background: var(--hover-bg, #f5f5f5);
+.nav-item:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+  color: var(--text-primary, #333);
 }
 
-.tab-btn.active {
+.nav-item.active {
   background: var(--primary, #4a9eff);
   color: #fff;
-  border-color: var(--primary, #4a9eff);
 }
 
-.badge {
+.nav-badge {
+  margin-left: auto;
   background: #e53935;
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   padding: 2px 6px;
   border-radius: 10px;
   min-width: 18px;
   text-align: center;
 }
 
-.modal-body {
+.nav-item.active .nav-badge {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border-color, #e8e8e8);
+}
+
+.close-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.close-link:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+/* Main Content */
+.admin-main {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 24px;
+  padding: 32px;
 }
 
-.loading-state,
-.empty-state {
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+  margin: 0 0 24px 0;
+}
+
+.section-header {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 48px;
-  color: var(--text-secondary, #888);
+  justify-content: space-between;
+  margin-bottom: 24px;
 }
 
-.spin {
-  animation: spin 1s linear infinite;
+.section-header .section-title {
+  margin: 0;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
 }
 
-.user-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.user-card {
+.stat-card {
   display: flex;
   align-items: center;
   gap: 16px;
+  padding: 20px;
+  background: var(--bg-secondary, #f7f8fa);
+  border-radius: 14px;
+}
+
+.stat-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.stat-icon.online { background: linear-gradient(135deg, #4caf50, #81c784); }
+.stat-icon.pending { background: linear-gradient(135deg, #ff9800, #ffb74d); }
+.stat-icon.total { background: linear-gradient(135deg, #2196f3, #64b5f6); }
+.stat-icon.banned { background: linear-gradient(135deg, #e53935, #ef5350); }
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary, #333);
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-secondary, #888);
+  margin-top: 2px;
+}
+
+/* Broadcast */
+.broadcast-section {
+  background: var(--bg-secondary, #f7f8fa);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.subsection-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+  margin: 0 0 16px 0;
+}
+
+.broadcast-form {
+  display: flex;
+  gap: 12px;
+}
+
+.broadcast-input {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 1px solid var(--border-color, #e8e8e8);
+  border-radius: 10px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #333);
+}
+
+.broadcast-input:focus {
+  outline: none;
+  border-color: var(--primary, #4a9eff);
+}
+
+/* Search */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-secondary, #f7f8fa);
+  border: 1px solid var(--border-color, #e8e8e8);
+  border-radius: 10px;
+  color: var(--text-secondary, #888);
+}
+
+.search-box input {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary, #333);
+  width: 200px;
+}
+
+.search-box input:focus {
+  outline: none;
+}
+
+/* User Table */
+.user-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-header {
+  display: flex;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.col-user { flex: 1; }
+.col-status { width: 100px; text-align: center; }
+.col-actions { width: 240px; text-align: right; }
+
+.table-row {
+  display: flex;
+  align-items: center;
   padding: 16px;
   background: var(--bg-secondary, #f7f8fa);
   border-radius: 12px;
 }
 
+.user-cell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .user-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   background: var(--primary, #4a9eff);
   color: #fff;
   font-weight: 600;
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.user-info {
-  flex: 1;
-  min-width: 0;
-}
-
 .user-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary, #333);
 }
 
-.user-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-}
-
 .user-id {
-  font-size: 13px;
-  color: var(--text-secondary, #888);
-}
-
-.user-status {
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  color: var(--text-secondary, #888);
+  margin-top: 2px;
 }
 
-.status-approved {
-  background: rgba(76, 175, 80, 0.1);
-  color: #4caf50;
+.status-cell {
+  width: 100px;
+  text-align: center;
 }
 
-.status-muted {
-  background: rgba(255, 152, 0, 0.1);
-  color: #ff9800;
+.status-tag {
+  display: inline-block;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
 }
 
-.status-banned {
-  background: rgba(229, 57, 53, 0.1);
-  color: #e53935;
-}
+.status-approved { background: rgba(76, 175, 80, 0.1); color: #4caf50; }
+.status-muted { background: rgba(255, 152, 0, 0.1); color: #ff9800; }
+.status-banned { background: rgba(229, 57, 53, 0.1); color: #e53935; }
+.status-pending { background: rgba(158, 158, 158, 0.1); color: #9e9e9e; }
 
-.status-pending {
-  background: rgba(158, 158, 158, 0.1);
-  color: #9e9e9e;
-}
-
-.user-actions {
+.action-cell {
+  width: 240px;
   display: flex;
-  gap: 8px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
-.btn {
+/* Toggle Switch */
+.toggle-label {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
+  gap: 8px;
+  cursor: pointer;
   font-size: 13px;
+  color: var(--text-secondary, #666);
+}
+
+.toggle-input {
+  display: none;
+}
+
+.toggle-slider {
+  width: 36px;
+  height: 20px;
+  background: #ccc;
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-input:checked + .toggle-slider.warning {
+  background: #ff9800;
+}
+
+.toggle-input:checked + .toggle-slider.danger {
+  background: #e53935;
+}
+
+.toggle-input:checked + .toggle-slider::after {
+  transform: translateX(16px);
+}
+
+/* Message Recall */
+.recall-form {
+  background: var(--bg-secondary, #f7f8fa);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.form-hint {
+  font-size: 14px;
+  color: var(--text-secondary, #888);
+  margin: 0 0 16px 0;
+}
+
+.recall-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-input {
+  flex: 1;
+  max-width: 300px;
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 1px solid var(--border-color, #e8e8e8);
+  border-radius: 10px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #333);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--primary, #4a9eff);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
   font-weight: 500;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: all 0.15s;
 }
 
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.btn-sm {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.btn-primary {
+  background: var(--primary, #4a9eff);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-dark, #357abd);
 }
 
 .btn-success {
@@ -497,23 +950,45 @@ function close() {
   background: #d32f2f;
 }
 
-.btn-warning {
-  background: #ff9800;
-  color: #fff;
+.btn-outline {
+  background: transparent;
+  color: var(--primary, #4a9eff);
+  border: 1px solid var(--primary, #4a9eff);
 }
 
-.btn-warning:hover:not(:disabled) {
-  background: #f57c00;
+.btn-outline:hover:not(:disabled) {
+  background: rgba(74, 158, 255, 0.1);
 }
 
-/* Transition */
+/* States */
+.loading-state,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px;
+  color: var(--text-secondary, #888);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Transitions */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
   transition: opacity 0.2s;
 }
 
-.modal-fade-enter-active .modal-container,
-.modal-fade-leave-active .modal-container {
+.modal-fade-enter-active .admin-container,
+.modal-fade-leave-active .admin-container {
   transition: transform 0.2s;
 }
 
@@ -522,17 +997,35 @@ function close() {
   opacity: 0;
 }
 
-.modal-fade-enter-from .modal-container,
-.modal-fade-leave-to .modal-container {
+.modal-fade-enter-from .admin-container,
+.modal-fade-leave-to .admin-container {
   transform: scale(0.95);
 }
 
 /* Dark mode */
-:root[data-theme='dark'] .modal-container {
+:root[data-theme='dark'] .admin-container {
   background: var(--bg-card, #2d2d2d);
 }
 
-:root[data-theme='dark'] .user-card {
+:root[data-theme='dark'] .admin-sidebar {
+  background: var(--bg-sidebar, #1a1a1a);
+}
+
+:root[data-theme='dark'] .stat-card,
+:root[data-theme='dark'] .table-row,
+:root[data-theme='dark'] .broadcast-section,
+:root[data-theme='dark'] .recall-form {
   background: var(--bg-secondary, #1a1a1a);
+}
+
+:root[data-theme='dark'] .broadcast-input,
+:root[data-theme='dark'] .form-input {
+  background: var(--bg-card, #2d2d2d);
+  border-color: var(--border-color, #404040);
+}
+
+:root[data-theme='dark'] .search-box {
+  background: var(--bg-secondary, #1a1a1a);
+  border-color: var(--border-color, #404040);
 }
 </style>

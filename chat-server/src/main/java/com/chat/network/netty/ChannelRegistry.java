@@ -57,4 +57,9 @@ public class ChannelRegistry {
     public List<String> getOnlineUserIds() {
         return new ArrayList<>(userIdToChannel.keySet());
     }
+
+    /** 返回所有已连接的 Channel（用于广播系统消息）。 */
+    public ChannelGroup getAllChannels() {
+        return allChannels;
+    }
 }
