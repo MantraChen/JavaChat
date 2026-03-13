@@ -1,0 +1,52 @@
+/* 主题变量：与原 index.html 一致，便于深色模式 */
+:root {
+  --bg-main: #F5F5F7;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #F9F9F9;
+  --text-main: #333333;
+  --text-muted: #666666;
+  --border-color: #EAEAEA;
+  --bubble-mine: #333333;
+  --bubble-other: #F1F1F1;
+  --bubble-other-text: #333333;
+  --input-border: #EAEAEA;
+  --input-focus: #333333;
+  --btn-primary: #333333;
+  --btn-primary-hover: #000000;
+  --btn-secondary: #555555;
+  --btn-secondary-hover: #444444;
+  --link-color: #333333;
+  --error-color: #c00;
+  --quote-bg: #f5f5f5;
+  --mention-bg: #FFF9C4;
+  --dropdown-bg: #ffffff;
+  --dropdown-border: #eee;
+  --dropdown-hover: #f0f0f0;
+  --typing-bg: #f5f5f5;
+}
+
+[data-theme="dark"] {
+  --bg-main: #121212;
+  --bg-card: #1E1E1E;
+  --bg-sidebar: #1E1E1E;
+  --text-main: #E0E0E0;
+  --text-muted: #AAAAAA;
+  --border-color: #333333;
+  --bubble-mine: #1565C0;
+  --bubble-other: #2C2C2C;
+  --bubble-other-text: #E0E0E0;
+  --input-border: #333333;
+  --input-focus: #64B5F6;
+  --btn-primary: #1976D2;
+  --btn-primary-hover: #1565C0;
+  --btn-secondary: #424242;
+  --btn-secondary-hover: #616161;
+  --link-color: #90CAF9;
+  --error-color: #ef5350;
+  --quote-bg: #2C2C2C;
+  --mention-bg: #37474F;
+  --dropdown-bg: #1E1E1E;
+  --dropdown-border: #333;
+  --dropdown-hover: #2C2C2C;
+  --typing-bg: #2C2C2C;
+}

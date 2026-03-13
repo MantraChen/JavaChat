@@ -1,4 +1,4 @@
-package com.chat.netty;
+package com.chat.network.netty;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,7 +19,7 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.CharsetUtil;
 
 /**
- * 处理 GET 静态页：/、/index.html、/register.html、/admin.html。
+ * 处理 GET 静态页：/、/index.html、/register.html、/admin.html 及 /assets/*（Vite 构建产物）。
  * 开发时优先从磁盘读取，便于改完刷新即生效，无需重启服务。
  */
 public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
@@ -49,18 +49,32 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
         }
     }
 
-    /** 按请求从磁盘或缓存取内容，便于开发时改 HTML 后刷新即生效 */
+    /** 按请求从磁盘或缓存取内容 */
     private static byte[] getContent(String path) {
         String name = path.equals("/") || path.equals("/index.html") ? "static/index.html"
                 : path.equals("/register.html") ? "static/register.html"
-                : path.equals("/admin.html") ? "static/admin.html" : null;
+                : path.equals("/admin.html") ? "static/admin.html"
+                : path.startsWith("/assets/") ? "static" + path : null;
         if (name == null) return null;
         byte[] fromDisk = loadFromDisk(name);
         if (fromDisk != null && fromDisk.length > 0) return fromDisk;
         if ("/".equals(path) || "/index.html".equals(path)) return INDEX_HTML;
         if ("/register.html".equals(path)) return REGISTER_HTML;
         if ("/admin.html".equals(path)) return ADMIN_HTML;
+        if (path.startsWith("/assets/")) {
+            try (InputStream in = HttpStaticHandler.class.getClassLoader().getResourceAsStream(name)) {
+                return in != null ? in.readAllBytes() : null;
+            } catch (Exception e) {
+                return null;
+            }
+        }
         return null;
+    }
+
+    private static String contentTypeForPath(String path) {
+        if (path.endsWith(".js")) return "application/javascript; charset=utf-8";
+        if (path.endsWith(".css")) return "text/css; charset=utf-8";
+        return "text/html; charset=utf-8";
     }
 
     @Override
@@ -100,7 +114,7 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
         ByteBuf body = Unpooled.copiedBuffer(content);
         DefaultFullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, body);
         resp.headers()
-                .set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8")
+                .set(HttpHeaderNames.CONTENT_TYPE, contentTypeForPath(path))
                 .set(HttpHeaderNames.CONTENT_LENGTH, body.readableBytes());
         ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
     }

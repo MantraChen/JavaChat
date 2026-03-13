@@ -5,6 +5,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.chat.core.ProtocolConsts;
 import com.chat.protocol.ChatMessagePacket;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -21,9 +22,9 @@ public class RedisChatSubscriber extends JedisPubSub {
     private static final Logger log = LoggerFactory.getLogger(RedisChatSubscriber.class);
     private static final Gson GSON = new Gson();
 
-    private final com.chat.netty.ChannelRegistry localRegistry;
+    private final com.chat.network.netty.ChannelRegistry localRegistry;
 
-    public RedisChatSubscriber(com.chat.netty.ChannelRegistry localRegistry) {
+    public RedisChatSubscriber(com.chat.network.netty.ChannelRegistry localRegistry) {
         this.localRegistry = localRegistry;
     }
 
@@ -37,16 +38,16 @@ public class RedisChatSubscriber extends JedisPubSub {
             String type = (String) map.get("type");
             if (type == null) type = "";
 
-            if ("RECALL".equals(type)) {
+            if (ProtocolConsts.TYPE_RECALL.equals(type)) {
                 // 撤回：向本节点所有连接广播
                 localRegistry.broadcast(null, message);
                 return;
             }
 
-            if ("typing".equals(type)) {
+            if (ProtocolConsts.TYPE_TYPING.equals(type)) {
                 String receiverId = (String) map.get("receiverId");
                 String senderId = (String) map.get("senderId");
-                if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {
+                if (receiverId == null || receiverId.isEmpty() || ProtocolConsts.TARGET_PUBLIC.equalsIgnoreCase(receiverId)) {
                     localRegistry.broadcast(senderId, message);
                 } else {
                     Channel targetCh = localRegistry.get(receiverId);
@@ -57,11 +58,11 @@ public class RedisChatSubscriber extends JedisPubSub {
                 return;
             }
 
-            if ("chat".equals(type)) {
+            if (ProtocolConsts.TYPE_CHAT.equals(type)) {
                 ChatMessagePacket packet = GSON.fromJson(message, ChatMessagePacket.class);
                 if (packet == null) return;
                 String receiverId = packet.receiverId;
-                if (receiverId == null || receiverId.isEmpty() || "PUBLIC".equalsIgnoreCase(receiverId)) {
+                if (receiverId == null || receiverId.isEmpty() || ProtocolConsts.TARGET_PUBLIC.equalsIgnoreCase(receiverId)) {
                     localRegistry.broadcast(packet.senderId, message);
                 } else {
                     Channel targetCh = localRegistry.get(receiverId);

@@ -21,7 +21,7 @@ public class TimelineKeyUtil {
      * 将 userId 映射为 22 位内的数字 ID。PUBLIC/空 恒为 0（公共大厅）。
      */
     public static int userIdToOwnerId(String userId) {
-        if (userId == null || userId.isEmpty() || "PUBLIC".equalsIgnoreCase(userId)) {
+        if (userId == null || userId.isEmpty() || com.chat.core.ProtocolConsts.TARGET_PUBLIC.equalsIgnoreCase(userId)) {
             return 0;
         }
         return Math.abs(userId.hashCode()) & 0x3FFFFF;
