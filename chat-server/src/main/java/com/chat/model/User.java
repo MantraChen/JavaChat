@@ -19,6 +19,10 @@ public class User {
     private String role = "USER";  // USER, ADMIN
     @SerializedName("status")
     private String status = "PENDING"; // PENDING, APPROVED, REJECTED, MUTED, BANNED
+    @SerializedName("nickname")
+    private String nickname;
+    @SerializedName("avatarUrl")
+    private String avatarUrl;
 
     public User() {}
 
@@ -52,4 +56,8 @@ public class User {
     public void setRole(String role) { this.role = role; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
 }
