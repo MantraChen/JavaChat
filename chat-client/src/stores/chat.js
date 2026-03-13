@@ -82,6 +82,29 @@ export const useChatStore = defineStore('chat', () => {
     });
   }
 
+  const errorCallback = ref(null);
+
+  function onError(cb) {
+    errorCallback.value = cb;
+  }
+
+  function handleError(reason) {
+    if (!reason) return;
+    if (reason === 'BANNED_NOTIFY' || reason.includes('封禁')) {
+      if (errorCallback.value) errorCallback.value('banned', '您的账号已被封禁，无法继续使用');
+      auth.logout();
+      return;
+    }
+    if (reason.includes('禁言')) {
+      if (errorCallback.value) errorCallback.value('muted', '您已被管理员禁言，暂时无法发送消息');
+      return;
+    }
+    if (reason.includes('Recall timeout')) {
+      return;
+    }
+    console.warn('Server error:', reason);
+  }
+
   function applyAck(localId, messageId) {
     const item = allMessages.value.find((x) => x.data.localId === localId);
     if (item) {
@@ -201,10 +224,8 @@ export const useChatStore = defineStore('chat', () => {
           if (data.messages.some((m) => m.mentions && m.mentions.indexOf(auth.userId) >= 0) && typeof document !== 'undefined' && document.hidden) {
             try { new Notification('有人 @你'); } catch (e) {}
           }
-        } else if (data.type === 'error' && data.reason && data.reason.indexOf('Recall timeout') >= 0) {
-          // ignore
         } else if (data.type === 'error') {
-          console.warn('Server error:', data.reason);
+          handleError(data.reason);
         }
       } catch (e) {
         console.warn('Parse message error', e);
@@ -286,6 +307,7 @@ export const useChatStore = defineStore('chat', () => {
     loadOnlineForMention,
     clearPendingAck,
     genLocalId,
+    onError,
     PUBLIC,
     INBOX,
   };

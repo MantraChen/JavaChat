@@ -22,7 +22,14 @@
 
       <div v-if="data.replyToId && (data.replyToUser || data.replyToContent)" class="quote-bar" @click="scrollToReply">
         <Reply :size="12" class="quote-icon" />
-        {{ (data.replyToUser ? data.replyToUser + ': ' : '') + (data.replyToContent || '').slice(0, 80) }}
+        <span class="quote-user">{{ data.replyToUser ? data.replyToUser + ': ' : '' }}</span>
+        <img
+          v-if="isReplyImage"
+          :src="data.replyToContent"
+          class="quote-image-thumb"
+          alt="图片"
+        />
+        <span v-else class="quote-text">{{ (data.replyToContent || '').slice(0, 80) }}</span>
       </div>
 
       <div class="bubble-wrapper">
@@ -86,6 +93,11 @@ const canRecall = computed(() => {
   const open = chat.ws && chat.ws.readyState === WebSocket.OPEN;
   if (!open || !props.data.timestamp) return false;
   return Date.now() - props.data.timestamp < 2 * 60 * 1000;
+});
+
+const isReplyImage = computed(() => {
+  const c = props.data.replyToContent;
+  return c && (c.startsWith('data:image/') || c.startsWith('/files/'));
 });
 
 function onSenderClick() {
@@ -249,6 +261,24 @@ function resend() {
 .quote-icon {
   flex-shrink: 0;
   opacity: 0.6;
+}
+
+.quote-user {
+  flex-shrink: 0;
+}
+
+.quote-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-image-thumb {
+  max-height: 32px;
+  max-width: 60px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .bubble-wrapper {
