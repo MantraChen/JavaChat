@@ -1,4 +1,4 @@
-package com.chat.netty;
+package com.chat.network.http;
 
 import com.chat.auth.AuthService;
 import com.google.gson.Gson;
@@ -15,6 +15,7 @@ import java.util.Map;
 /**
  * 处理 HTTP POST /api/login：body 为 JSON {"userId":"A","password":"xxx"}，
  * 成功返回 {"token":"jwt"}，失败返回 401 及 {"error":"..."}。
+ * 当前 Pipeline 使用 HttpDispatcherHandler 统一处理 /api/*，此类保留作备用。
  */
 public class HttpLoginHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     private static final String LOGIN_PATH = "/api/login";
@@ -37,6 +38,7 @@ public class HttpLoginHandler extends SimpleChannelInboundHandler<FullHttpReques
             return;
         }
         String body = req.content().toString(CharsetUtil.UTF_8);
+        req.release();
         @SuppressWarnings("unchecked")
         Map<String, String> map = GSON.fromJson(body, Map.class);
         if (map == null) {

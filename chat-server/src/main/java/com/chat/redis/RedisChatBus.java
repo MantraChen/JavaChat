@@ -1,6 +1,6 @@
 package com.chat.redis;
 
-import com.chat.netty.ChannelRegistry;
+import com.chat.network.netty.ChannelRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;

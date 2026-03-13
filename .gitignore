@@ -11,3 +11,6 @@ chat-server/target/
 # OS
 .DS_Store
 Thumbs.db
+
+# js
+node_modules/
