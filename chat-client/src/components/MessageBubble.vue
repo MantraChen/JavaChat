@@ -1,5 +1,13 @@
 <template>
+  <!-- System Message -->
+  <div v-if="data.msgType === 'system'" class="system-message">
+    <Megaphone :size="14" />
+    <span>{{ data.content }}</span>
+  </div>
+
+  <!-- Regular Message -->
   <div
+    v-else
     class="message-row"
     :class="[isSelf ? 'is-self' : 'is-other', { mention: isMention, recalled: data.isRecalled, sending: data.sending, 'send-failed': data.sendFailed }]"
     :data-message-id="data.messageId"
@@ -56,7 +64,7 @@
 import { computed } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useChatStore } from '../stores/chat';
-import { MessageSquareQuote, Copy, Undo2, Reply, AlertCircle } from 'lucide-vue-next';
+import { MessageSquareQuote, Copy, Undo2, Reply, AlertCircle, Megaphone } from 'lucide-vue-next';
 
 const props = defineProps({
   data: { type: Object, required: true },
@@ -125,6 +133,27 @@ function resend() {
 </script>
 
 <style scoped>
+/* System Message */
+.system-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  margin: 12px 40px;
+  background: var(--system-bg, rgba(0, 0, 0, 0.04));
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+  text-align: center;
+}
+
+:root[data-theme='dark'] .system-message {
+  background: var(--system-bg, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary, #aaa);
+}
+
+/* Regular Message */
 .message-row {
   display: flex;
   gap: 12px;

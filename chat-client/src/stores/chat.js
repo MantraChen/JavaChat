@@ -68,6 +68,20 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function appendSystemMessage(data) {
+    allMessages.value.push({
+      data: {
+        ...data,
+        msgType: 'system',
+        senderId: 'SYSTEM',
+        messageId: 'sys-' + Date.now(),
+      },
+      isSelf: false,
+      sessionId: PUBLIC,
+      isSystem: true,
+    });
+  }
+
   function applyAck(localId, messageId) {
     const item = allMessages.value.find((x) => x.data.localId === localId);
     if (item) {
@@ -174,6 +188,8 @@ export const useChatStore = defineStore('chat', () => {
           showTyping(data.senderId, data.status);
         } else if (data.type === 'RECALL') {
           applyRecall(data.messageId, data.senderId);
+        } else if (data.type === 'system') {
+          appendSystemMessage(data);
         } else if (data.type === 'sync_result' && Array.isArray(data.messages)) {
           const targetKey = data.target === PUBLIC || data.target === INBOX ? data.target
             : (data.messages.length && data.messages[0].receiverId && data.messages[0].receiverId !== PUBLIC) ? INBOX : PUBLIC;

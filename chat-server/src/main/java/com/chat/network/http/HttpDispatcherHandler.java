@@ -1,14 +1,39 @@
-package com.chat.network.http;
+    package com.chat.network.http;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.BiConsumer;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.chat.auth.AuthService;
 import com.chat.auth.JwtUtil;
+import static com.chat.core.ProtocolConsts.API_ADMIN_ACTION;
+import static com.chat.core.ProtocolConsts.API_ADMIN_ALL_USERS;
+import static com.chat.core.ProtocolConsts.API_ADMIN_APPROVE;
+import static com.chat.core.ProtocolConsts.API_ADMIN_BROADCAST;
+import static com.chat.core.ProtocolConsts.API_ADMIN_MESSAGE_RECALL;
+import static com.chat.core.ProtocolConsts.API_ADMIN_REJECT;
+import static com.chat.core.ProtocolConsts.API_ADMIN_USERS;
+import static com.chat.core.ProtocolConsts.API_LOGIN;
+import static com.chat.core.ProtocolConsts.API_ONLINE;
+import static com.chat.core.ProtocolConsts.API_REGISTER;
+import static com.chat.core.ProtocolConsts.API_UPLOAD;
+import static com.chat.core.ProtocolConsts.API_USERS;
+import static com.chat.core.ProtocolConsts.API_USER_PROFILE;
+import static com.chat.core.ProtocolConsts.FILES_PREFIX;
+import static com.chat.core.ProtocolConsts.SENDER_SYSTEM;
+import static com.chat.core.ProtocolConsts.TYPE_RECALL;
+import static com.chat.core.ProtocolConsts.TYPE_SYSTEM;
 import com.chat.model.User;
 import com.chat.network.netty.ChannelRegistry;
 import com.chat.service.FileStorageService;
-
-import static com.chat.core.ProtocolConsts.*;
-
 import com.google.gson.Gson;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -25,16 +50,8 @@ import io.netty.handler.codec.http.multipart.DefaultHttpDataFactory;
 import io.netty.handler.codec.http.multipart.FileUpload;
 import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.util.CharsetUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.BiConsumer;
 
 /**
  * HTTP API dispatcher using route table pattern.
@@ -72,6 +89,8 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         map.put(API_ADMIN_REJECT, this::handleAdminReject);
         map.put(API_ADMIN_ACTION, this::handleAdminAction);
         map.put(API_ADMIN_ALL_USERS, this::handleAdminAllUsers);
+        map.put(API_ADMIN_BROADCAST, this::handleAdminBroadcast);
+        map.put(API_ADMIN_MESSAGE_RECALL, this::handleAdminMessageRecall);
         return map;
     }
 
@@ -492,6 +511,97 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             log.warn("getAllUsers failed: {}", e.getMessage());
             sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
         }
+    }
+
+    // ==================== Admin Broadcast & Recall ====================
+
+    private void handleAdminBroadcast(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.POST) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        if (!isAdmin(token)) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
+            return;
+        }
+        String body = req.content().toString(CharsetUtil.UTF_8);
+        req.release();
+        @SuppressWarnings("unchecked")
+        Map<String, String> map = GSON.fromJson(body, Map.class);
+        if (map == null || map.get("message") == null || map.get("message").isBlank()) {
+            sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "message required"));
+            return;
+        }
+        String message = map.get("message").trim();
+        Map<String, Object> payload = Map.of(
+                "type", TYPE_SYSTEM,
+                "senderId", SENDER_SYSTEM,
+                "content", message,
+                "timestamp", System.currentTimeMillis()
+        );
+        String json = GSON.toJson(payload);
+        TextWebSocketFrame frame = new TextWebSocketFrame(json);
+        int sent = 0;
+        for (Channel ch : registry.getAllChannels()) {
+            if (ch.isActive()) {
+                ch.writeAndFlush(frame.retainedDuplicate());
+                sent++;
+            }
+        }
+        frame.release();
+        log.info("Admin broadcast sent to {} clients: {}", sent, message);
+        sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true, "sent", sent));
+    }
+
+    private void handleAdminMessageRecall(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.POST) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        if (!isAdmin(token)) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
+            return;
+        }
+        String body = req.content().toString(CharsetUtil.UTF_8);
+        req.release();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> map = GSON.fromJson(body, Map.class);
+        if (map == null || map.get("messageId") == null) {
+            sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "messageId required"));
+            return;
+        }
+        String messageIdStr = String.valueOf(map.get("messageId")).trim();
+        long messageId;
+        try {
+            messageId = Long.parseLong(messageIdStr);
+        } catch (NumberFormatException e) {
+            sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid messageId"));
+            return;
+        }
+        Map<String, Object> payload = Map.of(
+                "type", TYPE_RECALL,
+                "messageId", messageId,
+                "senderId", SENDER_SYSTEM,
+                "timestamp", System.currentTimeMillis()
+        );
+        String json = GSON.toJson(payload);
+        TextWebSocketFrame frame = new TextWebSocketFrame(json);
+        int sent = 0;
+        for (Channel ch : registry.getAllChannels()) {
+            if (ch.isActive()) {
+                ch.writeAndFlush(frame.retainedDuplicate());
+                sent++;
+            }
+        }
+        frame.release();
+        log.info("Admin force recall messageId={} to {} clients", messageId, sent);
+        sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true, "sent", sent));
     }
 
     // ==================== Utils ====================

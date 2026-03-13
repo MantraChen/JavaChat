@@ -12,6 +12,10 @@ public final class ProtocolConsts {
     public static final String TYPE_SYNC_RESULT = "sync_result";
     public static final String TYPE_RECALL = "RECALL";
     public static final String TYPE_TYPING = "typing";
+    public static final String TYPE_SYSTEM = "system";
+
+    // ---------- 特殊发送者 ----------
+    public static final String SENDER_SYSTEM = "SYSTEM";
 
     // ---------- 信箱/目标 ----------
     /** 大厅或公聊：receiverId/target 为空或此值 */
@@ -31,6 +35,8 @@ public final class ProtocolConsts {
     public static final String API_ADMIN_ACTION = "/api/admin/action";
     public static final String API_ADMIN_ALL_USERS = "/api/admin/all-users";
     public static final String API_USER_PROFILE = "/api/user/profile";
+    public static final String API_ADMIN_BROADCAST = "/api/admin/broadcast";
+    public static final String API_ADMIN_MESSAGE_RECALL = "/api/admin/message/recall";
     public static final String FILES_PREFIX = "/files/";
 
     private ProtocolConsts() {}
