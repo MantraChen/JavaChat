@@ -23,6 +23,10 @@ public class User {
     private String nickname;
     @SerializedName("avatarUrl")
     private String avatarUrl;
+    @SerializedName("muteUntil")
+    private Long muteUntil;
+    @SerializedName("banUntil")
+    private Long banUntil;
 
     public User() {}
 
@@ -60,4 +64,8 @@ public class User {
     public void setNickname(String nickname) { this.nickname = nickname; }
     public String getAvatarUrl() { return avatarUrl; }
     public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    public Long getMuteUntil() { return muteUntil; }
+    public void setMuteUntil(Long muteUntil) { this.muteUntil = muteUntil; }
+    public Long getBanUntil() { return banUntil; }
+    public void setBanUntil(Long banUntil) { this.banUntil = banUntil; }
 }

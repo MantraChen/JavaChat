@@ -459,19 +459,27 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         }
         int targetUserId = ((Number) map.get("userId")).intValue();
         String action = (String) map.get("action");
+        Number durationNum = (Number) map.get("durationHours");
+        long durationMs = durationNum != null ? (long) (durationNum.doubleValue() * 3600 * 1000) : 0;
+        long until = durationMs > 0 ? System.currentTimeMillis() + durationMs : 0;
+
         try {
             switch (action) {
-                case "MUTE" -> authService.changeUserStatus(targetUserId, "MUTED");
-                case "UNMUTE" -> authService.changeUserStatus(targetUserId, "APPROVED");
+                case "MUTE" -> authService.changeUserStatusWithDuration(targetUserId, "MUTED", until);
+                case "UNMUTE" -> authService.changeUserStatusWithDuration(targetUserId, "APPROVED", 0);
                 case "BAN" -> {
-                    authService.changeUserStatus(targetUserId, "BANNED");
+                    authService.changeUserStatusWithDuration(targetUserId, "BANNED", until);
                     User u = authService.getUserByUserId(targetUserId);
                     if (u != null && u.getUsername() != null) {
                         Channel ch = registry.get(u.getUsername());
-                        if (ch != null && ch.isActive()) ch.close();
+                        if (ch != null && ch.isActive()) {
+                            String notify = GSON.toJson(Map.of("type", "error", "reason", "BANNED_NOTIFY"));
+                            ch.writeAndFlush(new TextWebSocketFrame(notify))
+                              .addListener(ChannelFutureListener.CLOSE);
+                        }
                     }
                 }
-                case "UNBAN" -> authService.changeUserStatus(targetUserId, "APPROVED");
+                case "UNBAN" -> authService.changeUserStatusWithDuration(targetUserId, "APPROVED", 0);
                 default -> {
                     sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid action"));
                     return;

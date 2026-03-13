@@ -1,7 +1,14 @@
 <template>
   <div class="chat-input-wrap">
-    <div v-if="quoteDisplay" class="quote-preview">
-      <span>{{ quoteDisplay }}</span>
+    <div v-if="chat.pendingQuote" class="quote-preview">
+      <span class="quote-user">{{ chat.pendingQuote.user }}: </span>
+      <img
+        v-if="isQuoteImage"
+        :src="chat.pendingQuote.content"
+        class="quote-thumb"
+        alt="图片"
+      />
+      <span v-else class="quote-text">{{ quoteDisplay }}</span>
       <span class="clear" @click="clearQuote">×</span>
     </div>
     <div v-show="mentionVisible" class="mention-dropdown">
@@ -48,7 +55,12 @@ const inputText = ref('');
 const quoteDisplay = computed(() => {
   const q = chat.pendingQuote;
   if (!q) return '';
-  return (q.user || '') + ': ' + (q.content || '').slice(0, 50);
+  return (q.content || '').slice(0, 50);
+});
+
+const isQuoteImage = computed(() => {
+  const c = chat.pendingQuote?.content;
+  return c && (c.startsWith('data:image/') || c.startsWith('/files/'));
 });
 
 const mentionVisible = ref(false);
@@ -176,3 +188,56 @@ function onFileChange(e) {
 
 defineExpose({ focus: () => inputRef.value?.focus() });
 </script>
+
+<style scoped>
+.quote-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--quote-bg, rgba(0, 0, 0, 0.04));
+  border-radius: 8px 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+}
+
+.quote-user {
+  font-weight: 500;
+  color: var(--text-primary, #333);
+  flex-shrink: 0;
+}
+
+.quote-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-thumb {
+  max-height: 36px;
+  max-width: 60px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.clear {
+  margin-left: auto;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--text-secondary, #888);
+  padding: 0 4px;
+}
+
+.clear:hover {
+  color: var(--text-primary, #333);
+}
+
+:root[data-theme='dark'] .quote-preview {
+  background: var(--quote-bg, rgba(255, 255, 255, 0.08));
+}
+
+:root[data-theme='dark'] .quote-user {
+  color: var(--text-primary, #e0e0e0);
+}
+</style>

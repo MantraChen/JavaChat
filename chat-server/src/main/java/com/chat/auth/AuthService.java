@@ -142,11 +142,41 @@ public class AuthService {
 
     /** 通用状态修改：MUTED / BANNED / APPROVED 等，仅更新 NeuroDB 中的用户 JSON。 */
     public void changeUserStatus(int userId, String newStatus) throws IOException {
+        changeUserStatusWithDuration(userId, newStatus, 0);
+    }
+
+    /** 带时效的状态修改：until=0 表示永久。 */
+    public void changeUserStatusWithDuration(int userId, String newStatus, long until) throws IOException {
         User u = getUserByUserId(userId);
         if (u == null) return;
         u.setStatus(newStatus);
+        if ("MUTED".equals(newStatus)) {
+            u.setMuteUntil(until > 0 ? until : null);
+            u.setBanUntil(null);
+        } else if ("BANNED".equals(newStatus)) {
+            u.setBanUntil(until > 0 ? until : null);
+            u.setMuteUntil(null);
+        } else {
+            u.setMuteUntil(null);
+            u.setBanUntil(null);
+        }
         neuroDb.put((long) userId, gson.toJson(u));
-        log.info("Changed userId={} status to {}", userId, newStatus);
+        log.info("Changed userId={} status to {} until={}", userId, newStatus, until);
+    }
+
+    /** 检查并自动解除过期的禁言/封禁状态，返回是否仍被限制。 */
+    public boolean checkAndAutoUnlock(User u) throws IOException {
+        if (u == null) return false;
+        long now = System.currentTimeMillis();
+        if ("MUTED".equals(u.getStatus()) && u.getMuteUntil() != null && now > u.getMuteUntil()) {
+            changeUserStatusWithDuration((int) u.getUserId(), "APPROVED", 0);
+            return false;
+        }
+        if ("BANNED".equals(u.getStatus()) && u.getBanUntil() != null && now > u.getBanUntil()) {
+            changeUserStatusWithDuration((int) u.getUserId(), "APPROVED", 0);
+            return false;
+        }
+        return "MUTED".equals(u.getStatus()) || "BANNED".equals(u.getStatus());
     }
 
     /** 审批通过：更新 status=APPROVED，从待审核列表移除。 */

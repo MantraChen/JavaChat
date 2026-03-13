@@ -174,16 +174,26 @@
                   </div>
                   <div class="action-cell">
                     <template v-if="u.status === 'APPROVED'">
-                      <label class="toggle-label">
-                        <input type="checkbox" class="toggle-input" :checked="false" @change="muteUser(u.userId)" :disabled="actionLoading" />
-                        <span class="toggle-slider warning"></span>
-                        <span class="toggle-text">禁言</span>
-                      </label>
-                      <label class="toggle-label">
-                        <input type="checkbox" class="toggle-input" :checked="false" @change="banUser(u.userId)" :disabled="actionLoading" />
-                        <span class="toggle-slider danger"></span>
-                        <span class="toggle-text">封禁</span>
-                      </label>
+                      <div class="action-dropdown">
+                        <select class="action-select warning" @change="onMuteSelect($event, u.userId)" :disabled="actionLoading">
+                          <option value="">禁言</option>
+                          <option value="1">1小时</option>
+                          <option value="24">24小时</option>
+                          <option value="168">7天</option>
+                          <option value="0">永久</option>
+                        </select>
+                        <VolumeX :size="14" class="select-icon" />
+                      </div>
+                      <div class="action-dropdown">
+                        <select class="action-select danger" @change="onBanSelect($event, u.userId)" :disabled="actionLoading">
+                          <option value="">封禁</option>
+                          <option value="24">24小时</option>
+                          <option value="168">7天</option>
+                          <option value="720">30天</option>
+                          <option value="0">永久</option>
+                        </select>
+                        <Ban :size="14" class="select-icon" />
+                      </div>
                     </template>
                     <template v-else-if="u.status === 'MUTED'">
                       <button class="btn btn-success btn-sm" @click="unmuteUser(u.userId)" :disabled="actionLoading">
@@ -334,16 +344,18 @@ async function loadOnlineCount() {
   }
 }
 
-async function adminAction(userId, action) {
+async function adminAction(userId, action, durationHours = null) {
   actionLoading.value = true;
   try {
+    const payload = { userId, action };
+    if (durationHours !== null) payload.durationHours = durationHours;
     const res = await fetch('/api/admin/action', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + auth.token,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ userId, action }),
+      body: JSON.stringify(payload),
     });
     if (res.ok) {
       showToast('操作成功', 'success');
@@ -408,10 +420,26 @@ async function approveAll() {
   }
 }
 
-function muteUser(userId) { adminAction(userId, 'MUTE'); }
+function muteUser(userId, hours = null) { adminAction(userId, 'MUTE', hours); }
 function unmuteUser(userId) { adminAction(userId, 'UNMUTE'); }
-function banUser(userId) { adminAction(userId, 'BAN'); }
+function banUser(userId, hours = null) { adminAction(userId, 'BAN', hours); }
 function unbanUser(userId) { adminAction(userId, 'UNBAN'); }
+
+function onMuteSelect(e, userId) {
+  const val = e.target.value;
+  if (!val) return;
+  const hours = val === '0' ? null : parseInt(val, 10);
+  muteUser(userId, hours);
+  e.target.value = '';
+}
+
+function onBanSelect(e, userId) {
+  const val = e.target.value;
+  if (!val) return;
+  const hours = val === '0' ? null : parseInt(val, 10);
+  banUser(userId, hours);
+  e.target.value = '';
+}
 
 async function sendBroadcast() {
   if (!broadcastMessage.value.trim()) return;
@@ -812,10 +840,53 @@ function close() {
 .status-pending { background: rgba(158, 158, 158, 0.1); color: #9e9e9e; }
 
 .action-cell {
-  width: 240px;
+  width: 280px;
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
+}
+
+/* Action Dropdown */
+.action-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.action-select {
+  appearance: none;
+  padding: 8px 32px 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #fff;
+  transition: opacity 0.15s;
+}
+
+.action-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-select.warning {
+  background: #ff9800;
+}
+
+.action-select.danger {
+  background: #e53935;
+}
+
+.action-select:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.select-icon {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 /* Toggle Switch */
