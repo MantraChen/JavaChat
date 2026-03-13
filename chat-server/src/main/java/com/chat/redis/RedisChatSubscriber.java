@@ -1,14 +1,17 @@
 package com.chat.redis;
 
-import com.chat.protocol.ChatMessagePacket;
-import com.google.gson.Gson;
-import io.netty.channel.Channel;
-import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import redis.clients.jedis.JedisPubSub;
 
-import java.util.Map;
+import com.chat.protocol.ChatMessagePacket;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+
+import io.netty.channel.Channel;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import redis.clients.jedis.JedisPubSub;
 
 /**
  * Redis 订阅者：从 channel:chat_messages 收到集群内广播的聊天/撤回消息后，
@@ -67,7 +70,7 @@ public class RedisChatSubscriber extends JedisPubSub {
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (JsonSyntaxException e) {
             log.warn("Redis onMessage parse/dispatch failed: {}", e.getMessage());
         }
     }

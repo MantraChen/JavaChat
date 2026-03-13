@@ -41,11 +41,11 @@ public class ChannelRegistry {
 
     /** 向除 excludeUserId 外的所有已连接用户广播消息（每通道独立帧，确保所有客户端都能收到）。 */
     public void broadcast(String excludeUserId, Object message) {
-        String msg = message instanceof String ? (String) message : message.toString();
+        String msg = message == null ? "" : (message instanceof String ? (String) message : message.toString());
         for (var e : userIdToChannel.entrySet()) {
             if (excludeUserId != null && excludeUserId.equals(e.getKey())) continue;
             Channel c = e.getValue();
-            if (c.isActive()) c.writeAndFlush(new TextWebSocketFrame(msg));
+            if (c != null && c.isActive()) c.writeAndFlush(new TextWebSocketFrame(msg));
         }
     }
 

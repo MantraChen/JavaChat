@@ -1,7 +1,7 @@
 package com.chat.auth;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.slf4j.Logger;
@@ -53,10 +53,7 @@ public class JwtUtil {
                     .parseSignedClaims(token)
                     .getPayload()
                     .getSubject();
-        } catch (ExpiredJwtException e) {
-            log.debug("JWT expired: {}", e.getMessage());
-            return null;
-        } catch (Exception e) {
+        } catch (JwtException e) {
             log.debug("JWT parse failed: {}", e.getMessage());
             return null;
         }
@@ -73,7 +70,7 @@ public class JwtUtil {
                     .getPayload();
             String role = (String) claims.get(CLAIM_ROLE);
             return role != null ? role : "USER";
-        } catch (Exception e) {
+        } catch (JwtException e) {
             return null;
         }
     }
