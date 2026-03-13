@@ -66,6 +66,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         map.put(API_USERS, this::handleGetAllUsers);
         map.put(API_ONLINE, this::handleOnline);
         map.put(API_UPLOAD, this::handleUpload);
+        map.put(API_USER_PROFILE, this::handleUserProfile);
         map.put(API_ADMIN_USERS, this::handleAdminUsers);
         map.put(API_ADMIN_APPROVE, this::handleAdminApprove);
         map.put(API_ADMIN_REJECT, this::handleAdminReject);
@@ -199,6 +200,61 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         }
         List<String> users = registry.getOnlineUserIds();
         sendJson(ctx, HttpResponseStatus.OK, Map.of("users", users));
+    }
+
+    // ==================== User Profile ====================
+
+    private void handleUserProfile(ChannelHandlerContext ctx, FullHttpRequest req) {
+        String token = bearerToken(req);
+        String username = token != null ? jwtUtil.parseUserId(token) : null;
+        if (username == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
+
+        if (req.method() == HttpMethod.GET) {
+            req.release();
+            try {
+                User u = authService.getUserByUsernameOrId(username);
+                if (u == null) {
+                    sendJson(ctx, HttpResponseStatus.NOT_FOUND, Map.of("error", "User not found"));
+                    return;
+                }
+                sendJson(ctx, HttpResponseStatus.OK, Map.of(
+                        "nickname", u.getNickname() != null ? u.getNickname() : "",
+                        "avatarUrl", u.getAvatarUrl() != null ? u.getAvatarUrl() : ""
+                ));
+            } catch (IOException e) {
+                log.warn("Get profile failed: {}", e.getMessage());
+                sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+            }
+            return;
+        }
+
+        if (req.method() == HttpMethod.POST) {
+            String body = req.content().toString(CharsetUtil.UTF_8);
+            req.release();
+            @SuppressWarnings("unchecked")
+            Map<String, String> map = GSON.fromJson(body, Map.class);
+            if (map == null) {
+                sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid JSON"));
+                return;
+            }
+            String nickname = map.get("nickname");
+            String avatarUrl = map.get("avatarUrl");
+            try {
+                authService.updateProfile(username, nickname, avatarUrl);
+                sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
+            } catch (IOException e) {
+                log.warn("Update profile failed: {}", e.getMessage());
+                sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+            }
+            return;
+        }
+
+        req.release();
+        sendJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
     }
 
     // ==================== File Upload ====================

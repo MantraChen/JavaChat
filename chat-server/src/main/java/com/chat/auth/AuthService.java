@@ -247,4 +247,14 @@ public class AuthService {
         neuroDb.put((long) nameKey, String.valueOf(userId));
         log.info("Initialized admin user {}", adminUsername);
     }
+
+    /** Update user profile (nickname, avatarUrl). */
+    public void updateProfile(String username, String nickname, String avatarUrl) throws IOException {
+        User u = getUserByUsernameOrId(username);
+        if (u == null) return;
+        if (nickname != null) u.setNickname(nickname);
+        if (avatarUrl != null) u.setAvatarUrl(avatarUrl);
+        neuroDb.put(u.getUserId(), gson.toJson(u));
+        log.info("Updated profile for user {}", username);
+    }
 }

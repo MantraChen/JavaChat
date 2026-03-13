@@ -30,6 +30,7 @@ public final class ProtocolConsts {
     public static final String API_ADMIN_REJECT = "/api/admin/reject";
     public static final String API_ADMIN_ACTION = "/api/admin/action";
     public static final String API_ADMIN_ALL_USERS = "/api/admin/all-users";
+    public static final String API_USER_PROFILE = "/api/user/profile";
     public static final String FILES_PREFIX = "/files/";
 
     private ProtocolConsts() {}

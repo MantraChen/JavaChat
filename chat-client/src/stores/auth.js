@@ -1,13 +1,32 @@
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { login as apiLogin } from '../api';
 
 const THEME_KEY = 'theme';
+
+function parseJwtPayload(token) {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1]));
+    return payload;
+  } catch {
+    return null;
+  }
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '');
   const userId = ref(localStorage.getItem('userId') || '');
   const loginError = ref('');
+
+  const role = computed(() => {
+    const payload = parseJwtPayload(token.value);
+    return payload?.role || '';
+  });
+
+  const isAdmin = computed(() => role.value === 'ADMIN');
 
   watch(token, (v) => {
     if (v) localStorage.setItem('token', v);
@@ -66,6 +85,8 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     userId,
     loginError,
+    role,
+    isAdmin,
     isAuthenticated,
     doLogin,
     logout,

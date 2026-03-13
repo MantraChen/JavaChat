@@ -17,16 +17,30 @@
         {{ (data.replyToUser ? data.replyToUser + ': ' : '') + (data.replyToContent || '').slice(0, 80) }}
       </div>
 
-      <div class="bubble">
-        <template v-if="data.isRecalled">
-          <span class="recalled-text">{{ (data.senderId || '') + ' 撤回了一条消息' }}</span>
-        </template>
-        <template v-else-if="data.msgType === 'image' && data.content">
-          <img :src="data.content" alt="图片" class="msg-image" loading="lazy" @click="openImage" />
-        </template>
-        <template v-else>
-          {{ data.content || '' }}
-        </template>
+      <div class="bubble-wrapper">
+        <div class="bubble">
+          <template v-if="data.isRecalled">
+            <span class="recalled-text">{{ (data.senderId || '') + ' 撤回了一条消息' }}</span>
+          </template>
+          <template v-else-if="data.msgType === 'image' && data.content">
+            <img :src="data.content" alt="图片" class="msg-image" loading="lazy" @click="openImage" />
+          </template>
+          <template v-else>
+            {{ data.content || '' }}
+          </template>
+        </div>
+
+        <div class="action-bar" v-if="!data.isRecalled && !data.sendFailed">
+          <button class="action-btn" title="引用" @click="quote">
+            <MessageSquareQuote :size="16" />
+          </button>
+          <button class="action-btn" title="复制" @click="copyText">
+            <Copy :size="16" />
+          </button>
+          <button class="action-btn danger" title="撤回" v-if="canRecall" @click="recall">
+            <Undo2 :size="16" />
+          </button>
+        </div>
       </div>
 
       <div v-if="data.sendFailed" class="send-fail-row">
@@ -34,18 +48,6 @@
         <span class="send-fail-hint">发送失败</span>
         <a href="javascript:;" class="resend-link" @click.prevent="resend">重发</a>
       </div>
-    </div>
-
-    <div class="action-bar" v-if="!data.isRecalled && !data.sendFailed">
-      <button class="action-btn" title="引用" @click="quote">
-        <MessageSquareQuote :size="16" />
-      </button>
-      <button class="action-btn" title="复制" @click="copyText">
-        <Copy :size="16" />
-      </button>
-      <button class="action-btn danger" title="撤回" v-if="canRecall" @click="recall">
-        <Undo2 :size="16" />
-      </button>
     </div>
   </div>
 </template>
@@ -124,7 +126,6 @@ function resend() {
 
 <style scoped>
 .message-row {
-  position: relative;
   display: flex;
   gap: 12px;
   padding: 8px 16px;
@@ -221,6 +222,16 @@ function resend() {
   opacity: 0.6;
 }
 
+.bubble-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.is-self .bubble-wrapper {
+  flex-direction: row-reverse;
+}
+
 .bubble {
   background: var(--bubble-bg, #f0f2f5);
   padding: 10px 14px;
@@ -283,32 +294,21 @@ function resend() {
   text-decoration: underline;
 }
 
-/* Hover Action Bar */
+/* Action Bar - Flexbox aligned */
 .action-bar {
-  position: absolute;
-  top: 0;
-  right: 60px;
   display: flex;
   background: var(--bg-card, #ffffff);
   border: 1px solid var(--border-color, #e8e8e8);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-4px);
-  transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
-  z-index: 10;
-}
-
-.message-row.is-self .action-bar {
-  right: auto;
-  left: 60px;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
 .message-row:hover .action-bar {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
 }
 
 .action-btn {
@@ -346,7 +346,7 @@ function resend() {
   border-radius: 7px;
 }
 
-/* Dark mode support */
+/* Dark mode */
 :root[data-theme='dark'] .bubble {
   background: var(--bubble-bg, #2d2d2d);
 }
@@ -354,7 +354,7 @@ function resend() {
 :root[data-theme='dark'] .action-bar {
   background: var(--bg-card, #2d2d2d);
   border-color: var(--border-color, #404040);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
 }
 
 :root[data-theme='dark'] .action-btn:hover {
