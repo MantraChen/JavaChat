@@ -1,5 +1,11 @@
 package com.chat.netty;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
@@ -11,11 +17,6 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.CharsetUtil;
-
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * 处理 GET 静态页：/、/index.html、/register.html、/admin.html。
@@ -33,7 +34,7 @@ public class HttpStaticHandler extends SimpleChannelInboundHandler<FullHttpReque
             Path p = Paths.get(base, relativePath).toAbsolutePath().normalize();
             try {
                 if (Files.isRegularFile(p)) return Files.readAllBytes(p);
-            } catch (Exception ignored) { }
+            } catch (IOException ignored) { }
         }
         return null;
     }

@@ -1,11 +1,5 @@
 package com.chat.neurodb;
 
-import com.chat.config.AppConfig;
-import com.google.gson.Gson;
-import okhttp3.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -14,12 +8,20 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
+import com.chat.config.AppConfig;
+import com.google.gson.Gson;
+
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 /**
  * 通过 HTTP 调用 NeuroDB 的 /api/put、/api/get、/api/scan。
  * 用于存储用户（key=用户数字 id）、消息（key=Snowflake 消息 id）。
  */
 public class NeuroDbClient {
-    private static final Logger log = LoggerFactory.getLogger(NeuroDbClient.class);
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private final String baseUrl;
@@ -108,8 +110,7 @@ public class NeuroDbClient {
     /** 将 NeuroDB 返回的 value 转为字符串：可能是 base64、纯字符串或已解析的 JSON 对象。 */
     private String valueToString(Object v) {
         if (v == null) return "";
-        if (v instanceof String) {
-            String s = (String) v;
+        if (v instanceof String s) {
             try {
                 byte[] decoded = Base64.getDecoder().decode(s);
                 return decoded != null && decoded.length > 0

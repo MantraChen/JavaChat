@@ -12,8 +12,8 @@ public class AppConfig {
     /** 用户数据在 NeuroDB 中的 key 命名空间：用户 key = USER_NS + userId 的 hash/numeric id */
     private long userKeyNamespace = 1_000_000L;
     /** 消息 key 使用 Snowflake，需保证在 2^63 内，此处仅做范围扫描用 */
-    private long messageKeyMin = 2_000_000_000_000L;
-    private long messageKeyMax = 9_000_000_000_000L;
+    private final long messageKeyMin = 2_000_000_000_000L;
+    private final long messageKeyMax = 9_000_000_000_000L;
     /** 首次启动时创建的管理员账号（若不存在） */
     private String adminUsername = "admin";
     private String adminPassword = "admin123";

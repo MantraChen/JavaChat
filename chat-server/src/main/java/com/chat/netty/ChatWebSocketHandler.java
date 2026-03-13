@@ -15,6 +15,7 @@ import com.chat.protocol.SyncResultPacket;
 import com.chat.redis.RedisChatBus;
 import com.chat.util.TimelineKeyUtil;
 import com.google.gson.Gson;
+
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
@@ -28,10 +29,10 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.CharsetUtil;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.multipart.DefaultHttpDataFactory;
 import io.netty.handler.codec.http.multipart.FileUpload;
@@ -47,6 +48,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import com.google.gson.JsonSyntaxException;
 
 /**
  * WebSocket 消息处理：首包必须为 auth（携带 JWT），通过后注册 Channel；
@@ -91,17 +94,16 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-        if (msg instanceof FullHttpRequest) {
-            handleHttpRequest(ctx, (FullHttpRequest) msg);
+        if (msg instanceof FullHttpRequest req) {
+            handleHttpRequest(ctx, req);
             return;
         }
-        if (!(msg instanceof WebSocketFrame)) return;
-        WebSocketFrame frame = (WebSocketFrame) msg;
-        if (!(frame instanceof TextWebSocketFrame)) {
+        if (!(msg instanceof WebSocketFrame frame)) return;
+        if (!(frame instanceof TextWebSocketFrame textFrame)) {
             ctx.close();
             return;
         }
-        String text = ((TextWebSocketFrame) frame).text();
+        String text = textFrame.text();
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = GSON.fromJson(text, Map.class);
@@ -138,22 +140,13 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             }
 
             switch (type) {
-                case "chat":
-                    handleChat(ctx, map);
-                    break;
-                case "sync":
-                    handleSync(ctx, map);
-                    break;
-                case "RECALL":
-                    handleRecall(ctx, map);
-                    break;
-                case "typing":
-                    handleTyping(ctx, map);
-                    break;
-                default:
-                    sendError(ctx, "Unknown type: " + type);
+                case "chat" -> handleChat(ctx, map);
+                case "sync" -> handleSync(ctx, map);
+                case "RECALL" -> handleRecall(ctx, map);
+                case "typing" -> handleTyping(ctx, map);
+                default -> sendError(ctx, "Unknown type: " + type);
             }
-        } catch (Exception e) {
+        } catch (JsonSyntaxException e) {
             log.warn("handle message failed: {}", e.getMessage());
             sendError(ctx, e.getMessage());
         }
@@ -184,11 +177,13 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         Object rtId = map.get("replyToId");
         if (rtId != null) {
             long replyToIdLong;
-            if (rtId instanceof String) {
-                try { replyToIdLong = Long.parseLong((String) rtId); } catch (NumberFormatException e) { replyToIdLong = 0L; }
-            } else if (rtId instanceof Number) {
-                replyToIdLong = ((Number) rtId).longValue();
-            } else { replyToIdLong = 0L; }
+            switch (rtId) {
+                case String s -> {
+                    try { replyToIdLong = Long.parseLong(s); } catch (NumberFormatException e) { replyToIdLong = 0L; }
+                }
+                case Number n -> replyToIdLong = n.longValue();
+                default -> replyToIdLong = 0L;
+            }
             if (replyToIdLong != 0L) msg.setReplyToId(replyToIdLong);
         }
         String rtUser = (String) map.get("replyToUser");
@@ -274,11 +269,13 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         Object midObj = map.get("messageId");
         if (midObj == null) { sendError(ctx, "messageId required"); return; }
         long messageId;
-        if (midObj instanceof String) {
-            try { messageId = Long.parseLong((String) midObj); } catch (NumberFormatException e) { sendError(ctx, "Invalid messageId"); return; }
-        } else if (midObj instanceof Number) {
-            messageId = ((Number) midObj).longValue();
-        } else { sendError(ctx, "messageId required"); return; }
+        switch (midObj) {
+            case String s -> {
+                try { messageId = Long.parseLong(s); } catch (NumberFormatException e) { sendError(ctx, "Invalid messageId"); return; }
+            }
+            case Number n -> messageId = n.longValue();
+            default -> { sendError(ctx, "messageId required"); return; }
+        }
         String json;
         try {
             json = neuroDb.get(messageId);
@@ -323,6 +320,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     }
 
     /** 正在输入：不落库，直接推 Redis 或本机投递。 */
+    @SuppressWarnings("unused")
     private void handleTyping(ChannelHandlerContext ctx, Map<String, Object> map) {
         Object statusObj = map.get("status");
         boolean status = Boolean.TRUE.equals(statusObj);
@@ -380,7 +378,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
                     p.receiverId = m.getReceiverId();
                     p.msgType = m.getMsgType();
                     list.add(p);
-                } catch (Exception e) {
+                } catch (JsonSyntaxException e) {
                     // 忽略非 Message 结构
                 }
             }
@@ -509,13 +507,9 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
         String action = (String) map.get("action");
         try {
             switch (action) {
-                case "MUTE":
-                    authService.changeUserStatus(targetUserId, "MUTED");
-                    break;
-                case "UNMUTE":
-                    authService.changeUserStatus(targetUserId, "APPROVED");
-                    break;
-                case "BAN":
+                case "MUTE" -> authService.changeUserStatus(targetUserId, "MUTED");
+                case "UNMUTE" -> authService.changeUserStatus(targetUserId, "APPROVED");
+                case "BAN" -> {
                     authService.changeUserStatus(targetUserId, "BANNED");
                     User u = authService.getUserByUserId(targetUserId);
                     if (u != null) {
@@ -525,13 +519,12 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
                             if (ch != null && ch.isActive()) ch.close();
                         }
                     }
-                    break;
-                case "UNBAN":
-                    authService.changeUserStatus(targetUserId, "APPROVED");
-                    break;
-                default:
+                }
+                case "UNBAN" -> authService.changeUserStatus(targetUserId, "APPROVED");
+                default -> {
                     sendHttpJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid action"));
                     return;
+                }
             }
             sendHttpJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
         } catch (IOException e) {
@@ -780,7 +773,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             } else {
                 sendHttpJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "No file in upload"));
             }
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             log.warn("Upload failed: {}", e.getMessage());
             if (decoder != null) try { decoder.destroy(); } catch (Exception ignored) {}
             req.release();

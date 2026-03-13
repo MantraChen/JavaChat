@@ -3,9 +3,9 @@ package com.chat.auth;
 import com.chat.config.AppConfig;
 import com.chat.model.User;
 import com.chat.neurodb.NeuroDbClient;
-import com.chat.util.SnowflakeId;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+
 import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.google.gson.JsonSyntaxException;
 
 /**
  * 账户：注册（PENDING）、登录（仅 APPROVED）、管理员审批。
@@ -29,7 +31,6 @@ public class AuthService {
     private final NeuroDbClient neuroDb;
     private final long userKeyNamespace;
     private final JwtUtil jwtUtil;
-    private final SnowflakeId snowflakeId = new SnowflakeId();
     private final Gson gson = new Gson();
 
     public AuthService(NeuroDbClient neuroDb, AppConfig config, JwtUtil jwtUtil) {
@@ -121,7 +122,7 @@ public class AuthService {
             try {
                 User u = gson.fromJson(rec.value, User.class);
                 if (u != null && "APPROVED".equals(u.getStatus())) out.add(u);
-            } catch (Exception ignored) {}
+            } catch (JsonSyntaxException ignored) {}
         }
         return out;
     }
@@ -134,7 +135,7 @@ public class AuthService {
             try {
                 User u = gson.fromJson(rec.value, User.class);
                 if (u != null) out.add(u);
-            } catch (Exception ignored) {}
+            } catch (JsonSyntaxException ignored) {}
         }
         return out;
     }
@@ -189,7 +190,7 @@ public class AuthService {
             User user = gson.fromJson(json, User.class);
             if (user != null && username.equals(user.getId()) && BCrypt.checkpw(password, user.getPasswordHash())) {
                 if ("REJECTED".equals(user.getStatus())) return null;
-                return jwtUtil.createToken(user.getId(), user != null && user.getRole() != null ? user.getRole() : "USER");
+                return jwtUtil.createToken(user.getId(), user.getRole() != null ? user.getRole() : "USER");
             }
         }
         // 新体系：username -> userId -> User
@@ -212,12 +213,12 @@ public class AuthService {
     /** 旧版：逻辑 id 对应 key（A=1000001 等）。 */
     public int userIdToKey(String userId) {
         if (userId == null || userId.isEmpty()) return (int) userKeyNamespace;
-        switch (userId.toUpperCase()) {
-            case "A": return (int) userKeyNamespace + 1;
-            case "B": return (int) userKeyNamespace + 2;
-            case "C": return (int) userKeyNamespace + 3;
-            default: return (int) (userKeyNamespace + Math.abs(userId.hashCode() % 10000));
-        }
+        return switch (userId.toUpperCase()) {
+            case "A" -> (int) userKeyNamespace + 1;
+            case "B" -> (int) userKeyNamespace + 2;
+            case "C" -> (int) userKeyNamespace + 3;
+            default -> (int) (userKeyNamespace + Math.abs(userId.hashCode() % 10000));
+        };
     }
 
     public boolean userExists(String username) throws IOException {
