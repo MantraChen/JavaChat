@@ -53,6 +53,12 @@
             <artifactId>gson</artifactId>
             <version>2.10.1</version>
         </dependency>
+        <!-- Guava: 64-bit MurmurHash3 for username key (avoid String.hashCode collision) -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.4.0-jre</version>
+        </dependency>
         <!-- HTTP Client for NeuroDB -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>

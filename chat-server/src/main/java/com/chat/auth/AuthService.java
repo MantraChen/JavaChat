@@ -12,9 +12,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.common.hash.Hashing;
 import com.google.gson.JsonSyntaxException;
 
 /**
@@ -39,9 +41,12 @@ public class AuthService {
         this.jwtUtil = jwtUtil;
     }
 
-    private static int usernameToKey(String username) {
-        int h = username != null ? username.hashCode() : 0;
-        return USERNAME_MAP_NS + (Math.abs(h) % 50_000_000);
+    /** 使用 64 位 MurmurHash3 生成用户名映射 Key，避免 String.hashCode() 碰撞导致覆盖。 */
+    private static long usernameToKey(String username) {
+        if (username == null || username.isEmpty()) return USERNAME_MAP_NS;
+        long h = Hashing.murmur3_128().hashString(username, StandardCharsets.UTF_8).asLong();
+        if (h < 0) h = -h;
+        return h < USERNAME_MAP_NS ? USERNAME_MAP_NS + (h % (Long.MAX_VALUE - USERNAME_MAP_NS)) : h;
     }
 
     /** 新用户 ID（int 兼容 NeuroDB key），从 USER_ID_START 起。 */
@@ -56,14 +61,14 @@ public class AuthService {
     public String register(String username, String password) throws IOException {
         if (username == null || (username = username.trim()).isEmpty() || password == null || password.isEmpty())
             return "用户名或密码为空";
-        int nameKey = usernameToKey(username);
-        if (neuroDb.get((long) nameKey) != null)
+        long nameKey = usernameToKey(username);
+        if (neuroDb.get(nameKey) != null)
             return "用户名已存在";
         int userId = nextUserId();
         String hash = BCrypt.hashpw(password, BCrypt.gensalt(10));
         User user = new User(userId, username, hash, "USER", "PENDING");
         neuroDb.put((long) userId, gson.toJson(user));
-        neuroDb.put((long) nameKey, String.valueOf(userId));
+        neuroDb.put(nameKey, String.valueOf(userId));
         List<Long> pending = getPendingUserIds();
         pending.add((long) userId);
         neuroDb.put((long) KEY_PENDING_LIST, gson.toJson(pending));
@@ -103,8 +108,8 @@ public class AuthService {
             User u = gson.fromJson(json, User.class);
             if (u != null && s.equals(u.getId())) return u;
         }
-        int nameKey = usernameToKey(s);
-        String idStr = neuroDb.get((long) nameKey);
+        long nameKey = usernameToKey(s);
+        String idStr = neuroDb.get(nameKey);
         if (idStr == null || idStr.isBlank()) return null;
         try {
             int userId = Integer.parseInt(idStr.trim());
@@ -224,9 +229,9 @@ public class AuthService {
             }
         }
         // 新体系：username -> userId -> User
-        int nameKey = usernameToKey(username);
+        long nameKey = usernameToKey(username);
         try {
-            String idStr = neuroDb.get((long) nameKey);
+            String idStr = neuroDb.get(nameKey);
             if (idStr == null || idStr.isBlank()) return null;
             int userId = Integer.parseInt(idStr.trim());
             User user = getUserByUserId(userId);
@@ -255,7 +260,7 @@ public class AuthService {
         if (username == null) return false;
         if ("A".equalsIgnoreCase(username) || "B".equalsIgnoreCase(username) || "C".equalsIgnoreCase(username))
             return neuroDb.get((long) userIdToKey(username)) != null;
-        return neuroDb.get((long) usernameToKey(username)) != null;
+        return neuroDb.get(usernameToKey(username)) != null;
     }
 
     /** 仅用于兼容旧版初始化 A/B/C。 */
@@ -268,13 +273,13 @@ public class AuthService {
 
     /** 初始化管理员账号（username=admin, 需 APPROVED）。 */
     public void initAdminIfAbsent(String adminUsername, String password) throws IOException {
-        int nameKey = usernameToKey(adminUsername);
-        if (neuroDb.get((long) nameKey) != null) return;
+        long nameKey = usernameToKey(adminUsername);
+        if (neuroDb.get(nameKey) != null) return;
         int userId = nextUserId();
         String hash = BCrypt.hashpw(password, BCrypt.gensalt(10));
         User admin = new User(userId, adminUsername, hash, "ADMIN", "APPROVED");
         neuroDb.put((long) userId, gson.toJson(admin));
-        neuroDb.put((long) nameKey, String.valueOf(userId));
+        neuroDb.put(nameKey, String.valueOf(userId));
         log.info("Initialized admin user {}", adminUsername);
     }
 
