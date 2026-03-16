@@ -55,7 +55,8 @@ public class AuthService {
     private static long usernameToKey(String username) {
         if (username == null || username.isEmpty()) return USERNAME_MAP_NS;
         long h = Hashing.murmur3_128().hashString(username, StandardCharsets.UTF_8).asLong();
-        if (h < 0) h = -h;
+        // 位掩码抹除符号位，避免 Long.MIN_VALUE 取负溢出仍为负
+        h = h & Long.MAX_VALUE;
         return h < USERNAME_MAP_NS ? USERNAME_MAP_NS + (h % (Long.MAX_VALUE - USERNAME_MAP_NS)) : h;
     }
 
