@@ -35,14 +35,12 @@ public class AuthService {
     private static final int USER_ID_START = 2_000_000;
 
     private final NeuroDbClient neuroDb;
-    private final long userKeyNamespace;
     private final JwtUtil jwtUtil;
     private final Gson gson = new Gson();
     private final SnowflakeId snowflakeId = new SnowflakeId();
 
     public AuthService(NeuroDbClient neuroDb, AppConfig config, JwtUtil jwtUtil) {
         this.neuroDb = neuroDb;
-        this.userKeyNamespace = config.getUserKeyNamespace();
         this.jwtUtil = jwtUtil;
     }
 
@@ -105,7 +103,7 @@ public class AuthService {
         return gson.fromJson(json, User.class);
     }
 
-    /** 按用户名或数字 userId 取用户（JWT subject 可能是 username 或旧版 A/B/C）。 */
+    /** 按 username 或数字 userId 取用户（JWT subject 为 username）。 */
     public User getUserByUsernameOrId(String usernameOrId) throws IOException {
         if (usernameOrId == null || usernameOrId.trim().isEmpty()) return null;
         String s = usernameOrId.trim();
@@ -116,12 +114,6 @@ public class AuthService {
                 if (u != null) return u;
             }
         } catch (NumberFormatException ignored) {}
-        int legacyKey = userIdToKey(s);
-        String json = neuroDb.get((long) legacyKey);
-        if (json != null && !json.isBlank()) {
-            User u = gson.fromJson(json, User.class);
-            if (u != null && s.equals(u.getId())) return u;
-        }
         long nameKey = usernameToKey(s);
         String idStr = neuroDb.get(nameKey);
         if (idStr == null || idStr.isBlank()) return null;
@@ -232,27 +224,10 @@ public class AuthService {
         log.info("Rejected userId={}", userId);
     }
 
-    /** 登录：支持旧版 A/B/C 或新体系 username。返回 JWT；失败返回 null。需 APPROVED 才能登录。 */
+    /** 登录：username -> userId -> User，需 APPROVED 才能登录。返回 JWT；失败返回 null。 */
     public String login(String username, String password) {
         if (username == null || password == null) return null;
         username = username.trim();
-        // 旧版 A/B/C
-        int legacyKey = userIdToKey(username);
-        String json;
-        try {
-            json = neuroDb.get((long) legacyKey);
-        } catch (IOException e) {
-            log.warn("NeuroDB get user failed: {}", e.getMessage());
-            return null;
-        }
-        if (json != null && !json.isBlank()) {
-            User user = gson.fromJson(json, User.class);
-            if (user != null && username.equals(user.getId()) && BCrypt.checkpw(password, user.getPasswordHash())) {
-                if ("REJECTED".equals(user.getStatus())) return null;
-                return jwtUtil.createToken(user.getId(), user.getRole() != null ? user.getRole() : "USER");
-            }
-        }
-        // 新体系：username -> userId -> User
         long nameKey = usernameToKey(username);
         try {
             String idStr = neuroDb.get(nameKey);
@@ -262,37 +237,16 @@ public class AuthService {
             if (user == null || !username.equals(user.getUsername())) return null;
             if (!"APPROVED".equals(user.getStatus())) return null;
             if (!BCrypt.checkpw(password, user.getPasswordHash())) return null;
-            return jwtUtil.createToken(user.getUsername(), user.getRole());
+            return jwtUtil.createToken(user.getUsername(), user.getRole() != null ? user.getRole() : "USER");
         } catch (IOException e) {
             log.warn("Login lookup failed: {}", e.getMessage());
             return null;
         }
     }
 
-    /** 旧版：逻辑 id 对应 key（A=1000001 等）。 */
-    public int userIdToKey(String userId) {
-        if (userId == null || userId.isEmpty()) return (int) userKeyNamespace;
-        return switch (userId.toUpperCase()) {
-            case "A" -> (int) userKeyNamespace + 1;
-            case "B" -> (int) userKeyNamespace + 2;
-            case "C" -> (int) userKeyNamespace + 3;
-            default -> (int) (userKeyNamespace + Math.abs(userId.hashCode() % 10000));
-        };
-    }
-
     public boolean userExists(String username) throws IOException {
         if (username == null) return false;
-        if ("A".equalsIgnoreCase(username) || "B".equalsIgnoreCase(username) || "C".equalsIgnoreCase(username))
-            return neuroDb.get((long) userIdToKey(username)) != null;
         return neuroDb.get(usernameToKey(username)) != null;
-    }
-
-    /** 仅用于兼容旧版初始化 A/B/C。 */
-    public void initUser(String id, String plainPassword) throws IOException {
-        String hash = BCrypt.hashpw(plainPassword, BCrypt.gensalt(10));
-        User user = new User(id, hash);
-        int key = userIdToKey(id);
-        neuroDb.put((long) key, gson.toJson(user));
     }
 
     /** 初始化管理员账号（username=admin, 需 APPROVED）。 */

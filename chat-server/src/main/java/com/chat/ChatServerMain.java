@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 /**
  * 聊天服务端入口：启动 NeuroDB 客户端、JWT、认证服务、Netty WebSocket 服务。
  * 先启动 NeuroDB（go run cmd/server/main.go），再启动本服务。
- * 可选：首次运行前通过 initUsers() 初始化 A/B/C 账户（需在代码中或配置里打开）。
  */
 public class ChatServerMain {
     private static final Logger log = LoggerFactory.getLogger(ChatServerMain.class);
@@ -49,15 +48,9 @@ public class ChatServerMain {
         }
 
         try {
-            for (String id : new String[]{"A", "B", "C"}) {
-                if (!authService.userExists(id)) {
-                    authService.initUser(id, "pass" + id);
-                    log.info("Initialized user {} (password: pass{})", id, id);
-                }
-            }
             authService.initAdminIfAbsent(config.getAdminUsername(), config.getAdminPassword());
         } catch (Exception e) {
-            log.warn("Init users check failed: {}", e.getMessage());
+            log.warn("Init admin check failed: {}", e.getMessage());
         }
 
         EventLoopGroup boss = new NioEventLoopGroup(1);

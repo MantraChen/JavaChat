@@ -13,7 +13,7 @@ import io.netty.util.CharsetUtil;
 import java.util.Map;
 
 /**
- * 处理 HTTP POST /api/login：body 为 JSON {"userId":"A","password":"xxx"}，
+ * 处理 HTTP POST /api/login：body 为 JSON {"username":"...","password":"xxx"}（或 "userId" 作登录名），
  * 成功返回 {"token":"jwt"}，失败返回 401 及 {"error":"..."}。
  * 当前 Pipeline 使用 HttpDispatcherHandler 统一处理 /api/*，此类保留作备用。
  */
