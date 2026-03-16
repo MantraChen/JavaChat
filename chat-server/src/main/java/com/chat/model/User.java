@@ -15,7 +15,7 @@ public class User {
     @SerializedName("role")
     private String role = "USER";  // USER, ADMIN
     @SerializedName("status")
-    private String status = "PENDING"; // PENDING, APPROVED, REJECTED, MUTED, BANNED
+    private String status = "PENDING"; // PENDING, APPROVED, REJECTED, MUTED, BANNED, DELETED
     @SerializedName("nickname")
     private String nickname;
     @SerializedName("avatarUrl")

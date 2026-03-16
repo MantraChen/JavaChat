@@ -237,8 +237,9 @@ public class AuthService {
             long userId = Long.parseLong(idStr.trim());
             User user = getUserByUserId(userId);
             if (user == null || !username.equals(user.getUsername())) return null;
-            if (!"APPROVED".equals(user.getStatus())) return null;
-            if (!BCrypt.checkpw(password, user.getPasswordHash())) return null;
+            if (!"APPROVED".equals(user.getStatus()) || "DELETED".equals(user.getStatus())) return null;
+            String hash = user.getPasswordHash();
+            if (hash == null || hash.isEmpty() || !BCrypt.checkpw(password, hash)) return null;
             return jwtUtil.createToken(user.getUsername(), user.getRole() != null ? user.getRole() : "USER", user.getTokenVersion());
         } catch (IOException e) {
             log.warn("Login lookup failed: {}", e.getMessage());
@@ -259,6 +260,7 @@ public class AuthService {
         try {
             User u = getUserByUsernameOrId(username);
             if (u == null || u.getTokenVersion() != jwtUtil.parseTokenVersion(token)) return null;
+            if ("DELETED".equals(u.getStatus())) return null;
             return username;
         } catch (IOException e) {
             log.debug("validateToken getUser failed: {}", e.getMessage());
@@ -281,24 +283,47 @@ public class AuthService {
     /** Update user profile (nickname, avatarUrl). */
     public void updateProfile(String username, String nickname, String avatarUrl) throws IOException {
         User u = getUserByUsernameOrId(username);
-        if (u == null) return;
+        if (u == null || "DELETED".equals(u.getStatus())) return;
         if (nickname != null) u.setNickname(nickname);
         if (avatarUrl != null) u.setAvatarUrl(avatarUrl);
         neuroDb.put(u.getUserId(), gson.toJson(u));
         log.info("Updated profile for user {}", username);
     }
 
-    /** 修改密码：校验旧密码后更新哈希并自增 tokenVersion，使旧 JWT 失效。成功返回 null，失败返回错误信息。 */
+    /** 修改密码：校验旧密码后更新哈希并自增 tokenVersion，使其他端 JWT 失效。成功返回 null，失败返回错误信息。 */
     public String changePassword(String username, String oldPassword, String newPassword) throws IOException {
         if (username == null || (username = username.trim()).isEmpty() || newPassword == null || newPassword.isEmpty())
             return "参数无效";
         User u = getUserByUsernameOrId(username);
         if (u == null) return "用户不存在";
-        if (oldPassword == null || !BCrypt.checkpw(oldPassword, u.getPasswordHash())) return "原密码错误";
+        if ("DELETED".equals(u.getStatus())) return "账号已注销";
+        String hash = u.getPasswordHash();
+        if (hash == null || hash.isEmpty() || oldPassword == null || !BCrypt.checkpw(oldPassword, hash))
+            return "原密码错误";
         u.setPasswordHash(BCrypt.hashpw(newPassword, BCrypt.gensalt(10)));
         u.setTokenVersion(u.getTokenVersion() + 1);
         neuroDb.put(u.getUserId(), gson.toJson(u));
         log.info("Password changed for user {}", username);
+        return null;
+    }
+
+    /** 软删除/注销：校验密码后置 status=DELETED、清空敏感信息，保留 userId/username 占位供历史消息引用；自增 tokenVersion 使所有端下线。 */
+    public String deleteAccount(String username, String password) throws IOException {
+        if (username == null || (username = username.trim()).isEmpty()) return "参数无效";
+        User u = getUserByUsernameOrId(username);
+        if (u == null) return "用户不存在";
+        if ("DELETED".equals(u.getStatus())) return "账号已注销";
+        String hash = u.getPasswordHash();
+        if (hash == null || hash.isEmpty() || password == null || !BCrypt.checkpw(password, hash))
+            return "密码错误";
+        u.setStatus("DELETED");
+        u.setPasswordHash("");
+        u.setNickname(null);
+        u.setAvatarUrl(null);
+        u.setTokenVersion(u.getTokenVersion() + 1);
+        removeFromApprovedMailbox(u.getUserId());
+        neuroDb.put(u.getUserId(), gson.toJson(u));
+        log.info("Account deleted (soft) for user {}", username);
         return null;
     }
 
@@ -308,7 +333,7 @@ public class AuthService {
         lastSeenExecutor.submit(() -> {
             try {
                 User u = getUserByUsernameOrId(username);
-                if (u == null) return;
+                if (u == null || "DELETED".equals(u.getStatus())) return;
                 u.setLastSeenAt(System.currentTimeMillis());
                 neuroDb.put(u.getUserId(), gson.toJson(u));
             } catch (IOException e) {

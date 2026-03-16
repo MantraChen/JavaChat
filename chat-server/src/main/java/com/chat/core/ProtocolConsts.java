@@ -35,6 +35,8 @@ public final class ProtocolConsts {
     public static final String API_ADMIN_ACTION = "/api/admin/action";
     public static final String API_ADMIN_ALL_USERS = "/api/admin/all-users";
     public static final String API_USER_PROFILE = "/api/user/profile";
+    public static final String API_USER_PASSWORD = "/api/user/password";
+    public static final String API_USER_DELETE = "/api/user/delete";
     public static final String API_ADMIN_BROADCAST = "/api/admin/broadcast";
     public static final String API_ADMIN_MESSAGE_RECALL = "/api/admin/message/recall";
     public static final String FILES_PREFIX = "/files/";

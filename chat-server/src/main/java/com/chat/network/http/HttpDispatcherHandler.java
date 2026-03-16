@@ -25,6 +25,8 @@ import static com.chat.core.ProtocolConsts.API_REGISTER;
 import static com.chat.core.ProtocolConsts.API_UPLOAD;
 import static com.chat.core.ProtocolConsts.API_USERS;
 import static com.chat.core.ProtocolConsts.API_USER_PROFILE;
+import static com.chat.core.ProtocolConsts.API_USER_PASSWORD;
+import static com.chat.core.ProtocolConsts.API_USER_DELETE;
 import static com.chat.core.ProtocolConsts.FILES_PREFIX;
 import static com.chat.core.ProtocolConsts.SENDER_SYSTEM;
 import static com.chat.core.ProtocolConsts.TYPE_RECALL;
@@ -84,6 +86,8 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         map.put(API_ONLINE, this::handleOnline);
         map.put(API_UPLOAD, this::handleUpload);
         map.put(API_USER_PROFILE, this::handleUserProfile);
+        map.put(API_USER_PASSWORD, this::handleChangePassword);
+        map.put(API_USER_DELETE, this::handleDeleteAccount);
         map.put(API_ADMIN_USERS, this::handleAdminUsers);
         map.put(API_ADMIN_APPROVE, this::handleAdminApprove);
         map.put(API_ADMIN_REJECT, this::handleAdminReject);
@@ -278,6 +282,76 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
 
         req.release();
         sendJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+    }
+
+    /** POST /api/user/password：body { oldPassword, newPassword }，需登录；成功后 tokenVersion 刷新，其他端需重新登录。 */
+    private void handleChangePassword(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.POST) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        String username = token != null ? authService.validateTokenAndGetUsername(token) : null;
+        if (username == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
+        String body = req.content().toString(CharsetUtil.UTF_8);
+        req.release();
+        @SuppressWarnings("unchecked")
+        Map<String, String> map = body != null && !body.isBlank() ? GSON.fromJson(body, Map.class) : null;
+        if (map == null || map.get("oldPassword") == null || map.get("newPassword") == null) {
+            sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "oldPassword and newPassword required"));
+            return;
+        }
+        try {
+            String err = authService.changePassword(username, map.get("oldPassword"), map.get("newPassword"));
+            if (err == null) {
+                sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
+            } else {
+                sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", err));
+            }
+        } catch (IOException e) {
+            log.warn("Change password failed: {}", e.getMessage());
+            sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+        }
+    }
+
+    /** POST /api/user/delete：body { password }，需登录；软删除（status=DELETED、清空敏感信息），保留 userId/username 占位。 */
+    private void handleDeleteAccount(ChannelHandlerContext ctx, FullHttpRequest req) {
+        if (req.method() != HttpMethod.POST) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Map.of("error", "Method not allowed"));
+            return;
+        }
+        String token = bearerToken(req);
+        String username = token != null ? authService.validateTokenAndGetUsername(token) : null;
+        if (username == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
+        String body = req.content().toString(CharsetUtil.UTF_8);
+        req.release();
+        @SuppressWarnings("unchecked")
+        Map<String, String> map = body != null && !body.isBlank() ? GSON.fromJson(body, Map.class) : null;
+        if (map == null || map.get("password") == null) {
+            sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "password required"));
+            return;
+        }
+        try {
+            String err = authService.deleteAccount(username, map.get("password"));
+            if (err == null) {
+                sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
+            } else {
+                sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", err));
+            }
+        } catch (IOException e) {
+            log.warn("Delete account failed: {}", e.getMessage());
+            sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Server error"));
+        }
     }
 
     // ==================== File Upload ====================
