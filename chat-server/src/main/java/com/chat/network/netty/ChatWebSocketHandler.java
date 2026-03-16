@@ -1,5 +1,6 @@
 package com.chat.network.netty;
 
+import com.chat.auth.AuthService;
 import com.chat.auth.JwtUtil;
 import com.chat.core.ProtocolConsts;
 import com.chat.network.ws.HandlerException;
@@ -35,15 +36,17 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     private static final Logger log = LoggerFactory.getLogger(ChatWebSocketHandler.class);
     private static final Gson GSON = new Gson();
 
+    private final AuthService authService;
     private final JwtUtil jwtUtil;
     private final ChannelRegistry registry;
     private final Map<String, MessageHandler> handlers;
 
-    /** 当前连接对应的 userId，未认证为 null */
+    /** 当前连接对应的 username（未认证为 null） */
     private String currentUserId;
 
-    public ChatWebSocketHandler(JwtUtil jwtUtil, ChannelRegistry registry,
+    public ChatWebSocketHandler(AuthService authService, JwtUtil jwtUtil, ChannelRegistry registry,
                                 Map<String, MessageHandler> handlers) {
+        this.authService = authService;
         this.jwtUtil = jwtUtil;
         this.registry = registry;
         this.handlers = handlers;
@@ -88,20 +91,20 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
             if (currentUserId == null) {
                 if (ProtocolConsts.TYPE_AUTH.equals(type)) {
                     String token = (String) map.get("token");
-                    String userId = jwtUtil.parseUserId(token);
-                    if (userId == null) {
+                    String username = authService.validateTokenAndGetUsername(token);
+                    if (username == null) {
                         AuthFailPacket fail = new AuthFailPacket();
                         fail.reason = "Invalid or expired token";
                         send(ctx, fail);
                         ctx.close();
                         return;
                     }
-                    currentUserId = userId;
-                    registry.register(userId, ctx.channel());
+                    currentUserId = username;
+                    registry.register(username, ctx.channel());
                     AuthOkPacket ok = new AuthOkPacket();
-                    ok.userId = userId;
+                    ok.userId = username;
                     send(ctx, ok);
-                    log.info("user {} authenticated", userId);
+                    log.info("user {} authenticated", username);
                 } else {
                     sendError(ctx, "Auth required");
                     ctx.close();

@@ -26,21 +26,44 @@ public class JwtUtil {
     }
 
     private static final String CLAIM_ROLE = "role";
+    private static final String CLAIM_TOKEN_VERSION = "v";
 
-    /** 签发 JWT，sub=用户名/登录名，claim role=USER|ADMIN。 */
-    public String createToken(String subject, String role) {
+    /** 签发 JWT，sub=用户名，claim role、v(tokenVersion)；校验时需与 DB 中 tokenVersion 一致。 */
+    public String createToken(String subject, String role, long tokenVersion) {
         return Jwts.builder()
                 .subject(subject)
                 .claim(CLAIM_ROLE, role != null ? role : "USER")
+                .claim(CLAIM_TOKEN_VERSION, tokenVersion)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(key)
                 .compact();
     }
 
+    public String createToken(String subject, String role) {
+        return createToken(subject, role, 0);
+    }
+
     /** 兼容旧版：无 role 时视为 USER。 */
     public String createToken(String subject) {
         return createToken(subject, "USER");
+    }
+
+    /** 解析 JWT 中的 tokenVersion；无此 claim 或解析失败返回 0。 */
+    public long parseTokenVersion(String token) {
+        if (token == null || token.isBlank()) return 0;
+        try {
+            Object v = Jwts.parser()
+                    .verifyWith(key)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload()
+                    .get(CLAIM_TOKEN_VERSION);
+            if (v instanceof Number) return ((Number) v).longValue();
+            return 0;
+        } catch (JwtException e) {
+            return 0;
+        }
     }
 
     /** 校验并解析 JWT，返回 sub（用户名）；无效或过期返回 null。 */

@@ -60,7 +60,7 @@ public class ChatServerInitializer extends ChannelInitializer<SocketChannel> {
         p.addLast(new WebSocketServerProtocolHandler(wsConfig));
         p.addLast(new WebSocketFrameAggregator(10 * 1024 * 1024));
         p.addLast(new HttpStaticHandler());
-        p.addLast(new ChatWebSocketHandler(jwtUtil, registry, buildHandlers()));
+        p.addLast(new ChatWebSocketHandler(authService, jwtUtil, registry, buildHandlers()));
     }
 
     private Map<String, com.chat.network.ws.MessageHandler> buildHandlers() {

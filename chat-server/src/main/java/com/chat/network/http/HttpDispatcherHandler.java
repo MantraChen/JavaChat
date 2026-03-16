@@ -188,7 +188,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         }
         String token = bearerToken(req);
         req.release();
-        if (token == null || jwtUtil.parseUserId(token) == null) {
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
             sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
             return;
         }
@@ -213,7 +213,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         }
         String token = bearerToken(req);
         req.release();
-        if (token == null || jwtUtil.parseUserId(token) == null) {
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
             sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
             return;
         }
@@ -225,7 +225,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
 
     private void handleUserProfile(ChannelHandlerContext ctx, FullHttpRequest req) {
         String token = bearerToken(req);
-        String username = token != null ? jwtUtil.parseUserId(token) : null;
+        String username = token != null ? authService.validateTokenAndGetUsername(token) : null;
         if (username == null) {
             req.release();
             sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
@@ -285,7 +285,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String token = bearerToken(req);
-        if (token == null || jwtUtil.parseUserId(token) == null) {
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
             req.release();
             sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
             return;
@@ -354,6 +354,10 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         }
         String token = bearerToken(req);
         req.release();
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
             return;
@@ -384,6 +388,11 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String token = bearerToken(req);
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             req.release();
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
@@ -414,6 +423,11 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String token = bearerToken(req);
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             req.release();
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
@@ -444,6 +458,11 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String token = bearerToken(req);
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             req.release();
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
@@ -500,6 +519,10 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
         }
         String token = bearerToken(req);
         req.release();
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
             return;
@@ -530,6 +553,11 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String token = bearerToken(req);
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             req.release();
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));
@@ -571,6 +599,11 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String token = bearerToken(req);
+        if (token == null || authService.validateTokenAndGetUsername(token) == null) {
+            req.release();
+            sendJson(ctx, HttpResponseStatus.UNAUTHORIZED, Map.of("error", "Login required"));
+            return;
+        }
         if (!isAdmin(token)) {
             req.release();
             sendJson(ctx, HttpResponseStatus.FORBIDDEN, Map.of("error", "Admin required"));

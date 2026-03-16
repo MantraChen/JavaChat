@@ -24,6 +24,9 @@ public class User {
     private Long muteUntil;
     @SerializedName("banUntil")
     private Long banUntil;
+    /** 每次封禁或修改密码时自增，JWT 携带此值；校验时与 DB 不一致则拒绝（Token 失效）。 */
+    @SerializedName("tokenVersion")
+    private long tokenVersion = 0;
 
     public User() {}
 
@@ -53,4 +56,6 @@ public class User {
     public void setMuteUntil(Long muteUntil) { this.muteUntil = muteUntil; }
     public Long getBanUntil() { return banUntil; }
     public void setBanUntil(Long banUntil) { this.banUntil = banUntil; }
+    public long getTokenVersion() { return tokenVersion; }
+    public void setTokenVersion(long tokenVersion) { this.tokenVersion = tokenVersion; }
 }

@@ -175,6 +175,7 @@ public class AuthService {
         } else if ("BANNED".equals(newStatus)) {
             u.setBanUntil(until > 0 ? until : null);
             u.setMuteUntil(null);
+            u.setTokenVersion(u.getTokenVersion() + 1);
             removeFromApprovedMailbox(userId);
         } else if ("REJECTED".equals(newStatus)) {
             u.setMuteUntil(null);
@@ -231,7 +232,7 @@ public class AuthService {
             if (user == null || !username.equals(user.getUsername())) return null;
             if (!"APPROVED".equals(user.getStatus())) return null;
             if (!BCrypt.checkpw(password, user.getPasswordHash())) return null;
-            return jwtUtil.createToken(user.getUsername(), user.getRole() != null ? user.getRole() : "USER");
+            return jwtUtil.createToken(user.getUsername(), user.getRole() != null ? user.getRole() : "USER", user.getTokenVersion());
         } catch (IOException e) {
             log.warn("Login lookup failed: {}", e.getMessage());
             return null;
@@ -241,6 +242,21 @@ public class AuthService {
     public boolean userExists(String username) throws IOException {
         if (username == null) return false;
         return neuroDb.get(usernameToKey(username)) != null;
+    }
+
+    /** 校验 JWT 并返回用户名：解析有效、用户存在且 tokenVersion 与 DB 一致时返回 username，否则 null。 */
+    public String validateTokenAndGetUsername(String token) {
+        if (token == null || token.isBlank()) return null;
+        String username = jwtUtil.parseUserId(token);
+        if (username == null) return null;
+        try {
+            User u = getUserByUsernameOrId(username);
+            if (u == null || u.getTokenVersion() != jwtUtil.parseTokenVersion(token)) return null;
+            return username;
+        } catch (IOException e) {
+            log.debug("validateToken getUser failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     /** 初始化管理员账号（username=admin, 需 APPROVED）。 */
@@ -263,5 +279,19 @@ public class AuthService {
         if (avatarUrl != null) u.setAvatarUrl(avatarUrl);
         neuroDb.put(u.getUserId(), gson.toJson(u));
         log.info("Updated profile for user {}", username);
+    }
+
+    /** 修改密码：校验旧密码后更新哈希并自增 tokenVersion，使旧 JWT 失效。成功返回 null，失败返回错误信息。 */
+    public String changePassword(String username, String oldPassword, String newPassword) throws IOException {
+        if (username == null || (username = username.trim()).isEmpty() || newPassword == null || newPassword.isEmpty())
+            return "参数无效";
+        User u = getUserByUsernameOrId(username);
+        if (u == null) return "用户不存在";
+        if (oldPassword == null || !BCrypt.checkpw(oldPassword, u.getPasswordHash())) return "原密码错误";
+        u.setPasswordHash(BCrypt.hashpw(newPassword, BCrypt.gensalt(10)));
+        u.setTokenVersion(u.getTokenVersion() + 1);
+        neuroDb.put(u.getUserId(), gson.toJson(u));
+        log.info("Password changed for user {}", username);
+        return null;
     }
 }
