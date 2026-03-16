@@ -204,22 +204,16 @@ public class AuthService {
         return "MUTED".equals(u.getStatus()) || "BANNED".equals(u.getStatus());
     }
 
-    /** 审批通过：更新 status=APPROVED，从待审核区间移除（单 key 写入，无读-改-写）。 */
+    /** 审批通过：复用 changeUserStatus 更新状态并维护通讯录信箱，再从待审核区间移除。 */
     public void approve(long userId) throws IOException {
-        User u = getUserByUserId(userId);
-        if (u == null) return;
-        u.setStatus("APPROVED");
-        neuroDb.put(userId, gson.toJson(u));
+        changeUserStatus(userId, "APPROVED");
         removePending(userId);
         log.info("Approved userId={}", userId);
     }
 
-    /** 拒绝：status=REJECTED，从待审核区间移除。 */
+    /** 拒绝：复用 changeUserStatus 更新状态，再从待审核区间移除。 */
     public void reject(long userId) throws IOException {
-        User u = getUserByUserId(userId);
-        if (u == null) return;
-        u.setStatus("REJECTED");
-        neuroDb.put(userId, gson.toJson(u));
+        changeUserStatus(userId, "REJECTED");
         removePending(userId);
         log.info("Rejected userId={}", userId);
     }
