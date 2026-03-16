@@ -362,7 +362,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             List<Long> pendingIds = authService.getPendingUserIds();
             List<Map<String, Object>> users = new ArrayList<>();
             for (Long id : pendingIds) {
-                User u = authService.getUserByUserId(id.intValue());
+                User u = authService.getUserByUserId(id);
                 if (u != null) {
                     users.add(Map.<String, Object>of(
                             "userId", u.getUserId(),
@@ -397,7 +397,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "userId required"));
             return;
         }
-        int userId = ((Number) map.get("userId")).intValue();
+        long userId = ((Number) map.get("userId")).longValue();
         try {
             authService.approve(userId);
             sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
@@ -427,7 +427,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "userId required"));
             return;
         }
-        int userId = ((Number) map.get("userId")).intValue();
+        long userId = ((Number) map.get("userId")).longValue();
         try {
             authService.reject(userId);
             sendJson(ctx, HttpResponseStatus.OK, Map.of("ok", true));
@@ -457,7 +457,7 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "userId and action required"));
             return;
         }
-        int targetUserId = ((Number) map.get("userId")).intValue();
+        long targetUserId = ((Number) map.get("userId")).longValue();
         String action = (String) map.get("action");
         Number durationNum = (Number) map.get("durationHours");
         long durationMs = durationNum != null ? (long) (durationNum.doubleValue() * 3600 * 1000) : 0;
