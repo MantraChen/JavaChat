@@ -27,6 +27,9 @@ public class User {
     /** 每次封禁或修改密码时自增，JWT 携带此值；校验时与 DB 不一致则拒绝（Token 失效）。 */
     @SerializedName("tokenVersion")
     private long tokenVersion = 0;
+    /** 上次活跃时间（断开连接时更新），毫秒时间戳；0 表示从未记录。 */
+    @SerializedName("lastSeenAt")
+    private long lastSeenAt = 0;
 
     public User() {}
 
@@ -58,4 +61,6 @@ public class User {
     public void setBanUntil(Long banUntil) { this.banUntil = banUntil; }
     public long getTokenVersion() { return tokenVersion; }
     public void setTokenVersion(long tokenVersion) { this.tokenVersion = tokenVersion; }
+    public long getLastSeenAt() { return lastSeenAt; }
+    public void setLastSeenAt(long lastSeenAt) { this.lastSeenAt = lastSeenAt; }
 }

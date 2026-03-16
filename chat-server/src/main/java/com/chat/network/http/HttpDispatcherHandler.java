@@ -196,7 +196,11 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             List<User> users = authService.getAllApprovedUsers();
             List<Map<String, Object>> res = new ArrayList<>();
             for (User u : users) {
-                res.add(Map.of("userId", u.getUserId(), "username", u.getUsername() != null ? u.getUsername() : ""));
+                res.add(Map.of(
+                        "userId", u.getUserId(),
+                        "username", u.getUsername() != null ? u.getUsername() : "",
+                        "lastSeenAt", u.getLastSeenAt()
+                ));
             }
             sendJson(ctx, HttpResponseStatus.OK, Map.of("users", res));
         } catch (IOException e) {

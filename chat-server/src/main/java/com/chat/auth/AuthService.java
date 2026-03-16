@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import com.google.common.hash.Hashing;
 import com.google.gson.JsonSyntaxException;
@@ -38,6 +40,11 @@ public class AuthService {
     private final JwtUtil jwtUtil;
     private final Gson gson = new Gson();
     private final SnowflakeId snowflakeId = new SnowflakeId();
+    private final ExecutorService lastSeenExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "auth-lastSeen");
+        t.setDaemon(true);
+        return t;
+    });
 
     public AuthService(NeuroDbClient neuroDb, AppConfig config, JwtUtil jwtUtil) {
         this.neuroDb = neuroDb;
@@ -293,5 +300,20 @@ public class AuthService {
         neuroDb.put(u.getUserId(), gson.toJson(u));
         log.info("Password changed for user {}", username);
         return null;
+    }
+
+    /** 断开连接时异步更新该用户的 lastSeenAt 到 NeuroDB，不阻塞事件循环。 */
+    public void updateLastSeenAsync(String username) {
+        if (username == null || username.isBlank()) return;
+        lastSeenExecutor.submit(() -> {
+            try {
+                User u = getUserByUsernameOrId(username);
+                if (u == null) return;
+                u.setLastSeenAt(System.currentTimeMillis());
+                neuroDb.put(u.getUserId(), gson.toJson(u));
+            } catch (IOException e) {
+                log.warn("updateLastSeen failed: {}", e.getMessage());
+            }
+        });
     }
 }

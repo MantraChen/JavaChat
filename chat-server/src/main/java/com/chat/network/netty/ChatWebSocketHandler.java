@@ -60,6 +60,7 @@ public class ChatWebSocketHandler extends SimpleChannelInboundHandler<Object> {
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (currentUserId != null) {
+            authService.updateLastSeenAsync(currentUserId);
             registry.unregister(currentUserId);
             log.info("user {} disconnected", currentUserId);
         }
