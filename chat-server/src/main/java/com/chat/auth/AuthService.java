@@ -20,13 +20,16 @@ import com.google.gson.JsonSyntaxException;
 
 /**
  * 账户：注册（PENDING）、登录（仅 APPROVED）、管理员审批。
- * NeuroDB Key：待审核用 PENDING_NS 区间 Scan；用户名哈希->userId；userId->UserData JSON。
+ * NeuroDB Key：待审核 PENDING_NS 区间；已批准通讯录 APPROVED_MAILBOX_NS 信箱；用户名哈希->userId；userId->UserData JSON。
  */
 public class AuthService {
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     /** 待审核用户 key 区间 [PENDING_NS, PENDING_NS + PENDING_RANGE)，单 key  per userId，value 非 REMOVED 即待审核。 */
     private static final long PENDING_NS = 200_000_000L;
     private static final long PENDING_RANGE = 100_000_000L;
+    /** 已批准用户通讯录信箱（OwnerId=1）：[APPROVED_MAILBOX_NS, APPROVED_MAILBOX_NS + RANGE)，仅拉此区间即得通讯录，避免全表扫描。 */
+    private static final long APPROVED_MAILBOX_NS = 300_000_000L;
+    private static final long APPROVED_MAILBOX_RANGE = 100_000_000L;
     private static final String PENDING_TOMBSTONE = "REMOVED";
     private static final int USERNAME_MAP_NS = 100_000_000;
     private static final int USER_ID_START = 2_000_000;
@@ -130,17 +133,24 @@ public class AuthService {
         }
     }
 
-    /** 扫描用户 key 范围，返回所有状态为 APPROVED 的用户（通讯录用）。 */
+    /** 精准拉取「已批准用户通讯录」信箱，仅 scan 该区间，避免全表扫描。 */
     public List<User> getAllApprovedUsers() throws IOException {
         List<User> out = new ArrayList<>();
-        for (NeuroDbClient.ScanRecord rec : neuroDb.scan(USER_ID_START, USERNAME_MAP_NS)) {
-            if (rec.value == null || rec.value.isBlank() || !rec.value.trim().startsWith("{")) continue;
-            try {
-                User u = gson.fromJson(rec.value, User.class);
-                if (u != null && "APPROVED".equals(u.getStatus())) out.add(u);
-            } catch (JsonSyntaxException ignored) {}
+        for (NeuroDbClient.ScanRecord rec : neuroDb.scan(APPROVED_MAILBOX_NS, APPROVED_MAILBOX_NS + APPROVED_MAILBOX_RANGE)) {
+            if (rec.value == null || PENDING_TOMBSTONE.equals(rec.value)) continue;
+            long userId = rec.key - APPROVED_MAILBOX_NS;
+            User u = getUserByUserId(userId);
+            if (u != null && "APPROVED".equals(u.getStatus())) out.add(u);
         }
         return out;
+    }
+
+    private void addToApprovedMailbox(long userId) throws IOException {
+        neuroDb.put(APPROVED_MAILBOX_NS + userId, "1");
+    }
+
+    private void removeFromApprovedMailbox(long userId) throws IOException {
+        neuroDb.put(APPROVED_MAILBOX_NS + userId, PENDING_TOMBSTONE);
     }
 
     /** 扫描用户 key 范围，返回所有用户（管理后台用，含 status）。 */
@@ -161,7 +171,7 @@ public class AuthService {
         changeUserStatusWithDuration(userId, newStatus, 0);
     }
 
-    /** 带时效的状态修改：until=0 表示永久。 */
+    /** 带时效的状态修改：until=0 表示永久。同时维护已批准通讯录信箱（APPROVED 入信箱，MUTED/BANNED/REJECTED 移出）。 */
     public void changeUserStatusWithDuration(long userId, String newStatus, long until) throws IOException {
         User u = getUserByUserId(userId);
         if (u == null) return;
@@ -169,12 +179,19 @@ public class AuthService {
         if ("MUTED".equals(newStatus)) {
             u.setMuteUntil(until > 0 ? until : null);
             u.setBanUntil(null);
+            removeFromApprovedMailbox(userId);
         } else if ("BANNED".equals(newStatus)) {
             u.setBanUntil(until > 0 ? until : null);
             u.setMuteUntil(null);
+            removeFromApprovedMailbox(userId);
+        } else if ("REJECTED".equals(newStatus)) {
+            u.setMuteUntil(null);
+            u.setBanUntil(null);
+            removeFromApprovedMailbox(userId);
         } else {
             u.setMuteUntil(null);
             u.setBanUntil(null);
+            if ("APPROVED".equals(newStatus)) addToApprovedMailbox(userId);
         }
         neuroDb.put(userId, gson.toJson(u));
         log.info("Changed userId={} status to {} until={}", userId, newStatus, until);
