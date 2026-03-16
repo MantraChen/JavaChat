@@ -51,7 +51,7 @@ public class ChatServerInitializer extends ChannelInitializer<SocketChannel> {
         p.addLast(new HttpServerCodec());
         p.addLast(new HttpObjectAggregator(10 * 1024 * 1024)); // 10MB for HTTP/WebSocket (Base64 图片等)
         p.addLast(new ChunkedWriteHandler());
-        p.addLast(new HttpDispatcherHandler(authService, jwtUtil, registry, uploadDir));
+        p.addLast(new HttpDispatcherHandler(authService, jwtUtil, registry, neuroDb, uploadDir));
 
         WebSocketServerProtocolConfig wsConfig = WebSocketServerProtocolConfig.newBuilder()
                 .websocketPath("/ws")

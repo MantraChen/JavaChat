@@ -31,9 +31,12 @@ import static com.chat.core.ProtocolConsts.FILES_PREFIX;
 import static com.chat.core.ProtocolConsts.SENDER_SYSTEM;
 import static com.chat.core.ProtocolConsts.TYPE_RECALL;
 import static com.chat.core.ProtocolConsts.TYPE_SYSTEM;
+import com.chat.model.Message;
 import com.chat.model.User;
 import com.chat.network.netty.ChannelRegistry;
+import com.chat.neurodb.NeuroDbClient;
 import com.chat.service.FileStorageService;
+import com.chat.util.TimelineKeyUtil;
 import com.google.gson.Gson;
 
 import io.netty.buffer.ByteBuf;
@@ -66,14 +69,16 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
     private final AuthService authService;
     private final JwtUtil jwtUtil;
     private final ChannelRegistry registry;
+    private final NeuroDbClient neuroDb;
     private final FileStorageService fileStorage;
     private final Map<String, BiConsumer<ChannelHandlerContext, FullHttpRequest>> routes;
 
     public HttpDispatcherHandler(AuthService authService, JwtUtil jwtUtil,
-                                 ChannelRegistry registry, String uploadDir) {
+                                 ChannelRegistry registry, NeuroDbClient neuroDb, String uploadDir) {
         this.authService = authService;
         this.jwtUtil = jwtUtil;
         this.registry = registry;
+        this.neuroDb = neuroDb;
         this.fileStorage = new FileStorageService(uploadDir);
         this.routes = buildRoutes();
     }
@@ -650,12 +655,21 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             return;
         }
         String message = map.get("message").trim();
+        long timestamp = System.currentTimeMillis();
         Map<String, Object> payload = Map.of(
                 "type", TYPE_SYSTEM,
                 "senderId", SENDER_SYSTEM,
                 "content", message,
-                "timestamp", System.currentTimeMillis()
+                "timestamp", timestamp
         );
+        try {
+            long systemMsgId = TimelineKeyUtil.buildKey(0, timestamp);
+            neuroDb.put(systemMsgId, GSON.toJson(payload));
+        } catch (IOException e) {
+            log.warn("Admin broadcast persist failed: {}", e.getMessage());
+            sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Failed to persist broadcast"));
+            return;
+        }
         String json = GSON.toJson(payload);
         TextWebSocketFrame frame = new TextWebSocketFrame(json);
         int sent = 0;
@@ -701,6 +715,20 @@ public class HttpDispatcherHandler extends SimpleChannelInboundHandler<FullHttpR
             messageId = Long.parseLong(messageIdStr);
         } catch (NumberFormatException e) {
             sendJson(ctx, HttpResponseStatus.BAD_REQUEST, Map.of("error", "Invalid messageId"));
+            return;
+        }
+        try {
+            String oldJson = neuroDb.get(messageId);
+            if (oldJson != null && !oldJson.isBlank()) {
+                Message oldMsg = GSON.fromJson(oldJson, Message.class);
+                if (oldMsg != null) {
+                    oldMsg.setRecalled(true);
+                    neuroDb.put(messageId, GSON.toJson(oldMsg));
+                }
+            }
+        } catch (IOException e) {
+            log.warn("Admin recall persist failed: {}", e.getMessage());
+            sendJson(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, Map.of("error", "Failed to update message"));
             return;
         }
         Map<String, Object> payload = Map.of(
